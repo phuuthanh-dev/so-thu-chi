@@ -26,7 +26,7 @@ beforeEach(() => {
   localStorage.clear(); server.version = 0; server.offline = false; server.saveFails = false;
   server.data = { entries: [], wallets: [{ id: "cash", name: "Tiền mặt", balance: 0 }], budgets: {}, rules: [], categories: { expense: ["Ăn uống", "Khác"], income: ["Lương"] } };
 });
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 it("báo mất đồng bộ khi lần tải nền thất bại rồi hồi phục khi kết nối trở lại", async () => {
   render(<Page />);
@@ -69,4 +69,57 @@ it("sửa quy tắc định kỳ mà không thay đổi giao dịch cũ hoặc n
   await waitFor(() => expect(server.version).toBe(1));
   expect((server.data.rules as { amount: number; anchorDay: number }[])[0]).toMatchObject({ amount: 200, anchorDay: 31 });
   expect((server.data.entries as { amount: number }[])[0].amount).toBe(100);
+});
+
+it("sửa tên và số dư ban đầu của ví, giữ nguyên giao dịch", async () => {
+  server.data.entries = [{ id: "old", type: "expense", amount: 100, category: "Ăn uống", note: "", wallet: "cash", date: "2026-11-01" }];
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getAllByRole("button", { name: "Ví của tôi" })[0]);
+  await user.click(screen.getByRole("button", { name: "Sửa ví Tiền mặt" }));
+  const dialog = screen.getByRole("dialog");
+  await user.clear(within(dialog).getByLabelText("Tên ví"));
+  await user.type(within(dialog).getByLabelText("Tên ví"), "Ví gia đình");
+  await user.clear(within(dialog).getByLabelText(/Số dư ban đầu/));
+  await user.type(within(dialog).getByLabelText(/Số dư ban đầu/), "1000");
+  await user.click(within(dialog).getByRole("button", { name: "Lưu thay đổi" }));
+  await waitFor(() => expect(server.version).toBe(1));
+  expect((server.data.wallets as { name: string; balance: number }[])[0]).toMatchObject({ name: "Ví gia đình", balance: 1000 });
+  expect((server.data.entries as { amount: number }[])[0].amount).toBe(100);
+  expect(screen.getByText("900 ₫")).toBeTruthy();
+});
+
+it("lưu trữ ví đã dùng và khôi phục mà không xóa lịch sử", async () => {
+  (server.data.wallets as unknown[]).push({ id: "bank", name: "Ngân hàng", balance: 500 });
+  server.data.entries = [{ id: "old", type: "expense", amount: 100, category: "Ăn uống", note: "", wallet: "bank", date: "2026-11-01" }];
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getAllByRole("button", { name: "Ví của tôi" })[0]);
+  await user.click(screen.getByRole("button", { name: "Xóa ví Ngân hàng" }));
+  await screen.findByRole("button", { name: "Khôi phục ví Ngân hàng" });
+  expect((server.data.entries as { wallet: string }[])[0].wallet).toBe("bank");
+  expect((server.data.wallets as { id: string; archived?: boolean }[]).find((w) => w.id === "bank")?.archived).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Khôi phục ví Ngân hàng" }));
+  await screen.findByRole("button", { name: "Sửa ví Ngân hàng" });
+  await waitFor(() => expect(server.version).toBe(2));
+  expect((server.data.wallets as { id: string; archived?: boolean }[]).find((w) => w.id === "bank")?.archived).toBe(false);
+});
+
+it("chỉ xóa ví chưa sử dụng sau xác nhận; giữ ví cuối và ví có quy tắc", async () => {
+  (server.data.wallets as unknown[]).push({ id: "bank", name: "Ngân hàng", balance: 0 });
+  server.data.rules = [{ id: "rule", wallet: "bank", type: "expense", amount: 100, category: "Ăn uống", note: "", next: "2027-01-01", active: false }];
+  const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getAllByRole("button", { name: "Ví của tôi" })[0]);
+  await user.click(screen.getByRole("button", { name: "Xóa ví Ngân hàng" }));
+  expect(alert).toHaveBeenCalledWith(expect.stringContaining("giao dịch định kỳ"));
+  await user.click(screen.getByRole("button", { name: "Xóa ví Tiền mặt" }));
+  await waitFor(() => expect(server.version).toBe(1));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect((server.data.wallets as unknown[])).toHaveLength(1);
+  await user.click(screen.getByRole("button", { name: "Xóa ví Ngân hàng" }));
+  expect(alert).toHaveBeenLastCalledWith(expect.stringContaining("ít nhất một ví"));
 });

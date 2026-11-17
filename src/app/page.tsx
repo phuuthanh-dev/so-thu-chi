@@ -48,7 +48,7 @@ type Entry = {
   wallet: string;
   origin?: string;
 };
-type WalletItem = { id: string; name: string; balance: number };
+type WalletItem = { id: string; name: string; balance: number; archived?: boolean };
 type Rule = {
   id: string;
   type: Kind;
@@ -135,6 +135,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
     [repeat, setRepeat] = useState(false),
     [walletName, setWalletName] = useState(""),
     [walletBalance, setWalletBalance] = useState("0"),
+    [walletEditId, setWalletEditId] = useState<string | null>(null),
     [budgetInput, setBudgetInput] = useState(""),
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("all"),
@@ -327,7 +328,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
     setDate(e?.date || dateISO());
     setCategory(e?.category || data?.categories[t][0] || "Khác");
     setNote(e?.note || "");
-    setWallet(e?.wallet || data?.wallets[0]?.id || "");
+    setWallet(e?.wallet || data?.wallets.find((item) => !item.archived)?.id || "");
     setRepeat(false);
     setEditId(e?.id || null);
     setModal("entry");
@@ -860,7 +861,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                       Xem tất cả <ArrowRight size={15} />
                     </button>
                   </div>
-                  {data.wallets.map((w) => (
+                  {data.wallets.filter((w) => !w.archived).map((w) => (
                     <div className="wallet-row" key={w.id}>
                       <span className="wallet-icon">
                         <Wallet size={18} />
@@ -932,13 +933,18 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                 </div>
                 <button
                   className="outline-btn"
-                  onClick={() => setModal("wallet")}
+                  onClick={() => {
+                    setWalletEditId(null);
+                    setWalletName("");
+                    setWalletBalance("0");
+                    setModal("wallet");
+                  }}
                 >
                   <Plus size={16} /> Thêm ví
                 </button>
               </div>
-              {data.wallets.map((w) => (
-                <div className="wallet-row large" key={w.id}>
+              {data.wallets.filter((w) => !w.archived).map((w) => (
+                <div className="wallet-row large wallet-manage" key={w.id}>
                   <span className="wallet-icon">
                     <CreditCard size={20} />
                   </span>
@@ -956,8 +962,49 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                       ),
                     )}
                   </b>
+                  <div className="wallet-actions">
+                    <button className="wallet-action" aria-label={`Sửa ví ${w.name}`} onClick={() => {
+                      setWalletEditId(w.id);
+                      setWalletName(w.name);
+                      setWalletBalance(String(w.balance));
+                      setModal("wallet");
+                    }}>Sửa</button>
+                    <button className="wallet-action wallet-remove" aria-label={`Xóa ví ${w.name}`} onClick={() => {
+                      if (data.wallets.filter((item) => !item.archived).length <= 1) {
+                        alert("Cần giữ ít nhất một ví đang sử dụng. Hãy thêm ví khác trước khi xóa ví này.");
+                        return;
+                      }
+                      if (data.rules.some((rule) => rule.wallet === w.id)) {
+                        alert("Ví này đang được dùng bởi giao dịch định kỳ. Hãy sửa các quy tắc định kỳ sang ví khác trước khi xóa.");
+                        return;
+                      }
+                      const used = data.entries.some((entry) => entry.wallet === w.id);
+                      if (!confirm(used
+                        ? `Xóa ví “${w.name}” khỏi danh sách? Ví sẽ được lưu trữ để giữ lịch sử giao dịch và có thể khôi phục sau.`
+                        : `Xóa ví “${w.name}”? Ví chưa có giao dịch và sẽ bị xóa khỏi sổ.`)) return;
+                      save({ ...data, wallets: used
+                        ? data.wallets.map((item) => item.id === w.id ? { ...item, archived: true } : item)
+                        : data.wallets.filter((item) => item.id !== w.id) });
+                    }}>Xóa</button>
+                  </div>
                 </div>
               ))}
+              {data.wallets.some((w) => w.archived) && (
+                <div className="archived-wallets">
+                  <h3>Ví đã lưu trữ</h3>
+                  <p>Lịch sử giao dịch vẫn được giữ. Khôi phục ví để sử dụng lại.</p>
+                  {data.wallets.filter((w) => w.archived).map((w) => (
+                    <div className="wallet-row wallet-manage" key={w.id}>
+                      <span className="wallet-icon"><CreditCard size={20} /></span>
+                      <div><strong>{w.name}</strong><small>Đã lưu trữ</small></div>
+                      <button className="wallet-action" aria-label={`Khôi phục ví ${w.name}`} onClick={() => save({
+                        ...data,
+                        wallets: data.wallets.map((item) => item.id === w.id ? { ...item, archived: false } : item),
+                      })}>Khôi phục</button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <p className="footnote">
                 Chưa hỗ trợ chuyển tiền giữa các ví. Số dư chỉ phản ánh giao
                 dịch được ghi trong ứng dụng.
@@ -1207,7 +1254,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                         ? "Sửa giao dịch"
                         : "Thêm giao dịch"
                       : modal === "wallet"
-                        ? "Thêm ví mới"
+                          ? walletEditId ? "Sửa ví" : "Thêm ví mới"
                         : modal === "budget"
                           ? "Ngân sách tháng"
                           : "Quản lý danh mục"}
@@ -1286,9 +1333,9 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                       value={wallet}
                       onChange={(e) => setWallet(e.target.value)}
                     >
-                      {data.wallets.map((w) => (
+                      {data.wallets.filter((w) => !w.archived || w.id === wallet).map((w) => (
                         <option value={w.id} key={w.id}>
-                          {w.name}
+                          {w.name}{w.archived ? " (đã lưu trữ)" : ""}
                         </option>
                       ))}
                     </select>
@@ -1341,14 +1388,9 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                   if (
                     save({
                       ...data,
-                      wallets: [
-                        ...data.wallets,
-                        {
-                          id: uid(),
-                          name: walletName.trim(),
-                          balance: Number(walletBalance) || 0,
-                        },
-                      ],
+                      wallets: walletEditId
+                        ? data.wallets.map((item) => item.id === walletEditId ? { ...item, name: walletName.trim(), balance: Number(walletBalance) || 0 } : item)
+                        : [...data.wallets, { id: uid(), name: walletName.trim(), balance: Number(walletBalance) || 0 }],
                     })
                   ) {
                     setWalletName("");
@@ -1375,7 +1417,8 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                     onChange={(e) => setWalletBalance(e.target.value)}
                   />
                 </label>
-                <button className="primary-btn form-submit">Thêm ví</button>
+                <p className="modal-desc">Số dư hiện tại = số dư ban đầu + các khoản thu − các khoản chi đã ghi. Thay đổi số dư ban đầu sẽ thay đổi số dư hiện tại.</p>
+                <button className="primary-btn form-submit">{walletEditId ? "Lưu thay đổi" : "Thêm ví"}</button>
               </form>
             )}
             {modal === "budget" && (
