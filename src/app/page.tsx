@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { AuthGate } from "./auth";
 import {
@@ -20,7 +21,6 @@ import {
   ChevronRight,
   CircleHelp,
   CreditCard,
-  Home,
   LayoutGrid,
   Menu,
   MoreHorizontal,
@@ -477,7 +477,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
       <aside className={`sidebar ${menu ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">
-            <Home size={20} />
+            <Image src="/logo.png" alt="" width={38} height={38} />
           </div>
           <div>
             <strong>
