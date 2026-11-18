@@ -383,3 +383,107 @@ it("đồng bộ việc xóa danh mục sang phiên khác khi làm mới", async
   await waitFor(() => expect(within(second.container).queryByRole("button", { name: "Xóa danh mục Ăn uống" })).toBeNull());
   expect(within(second.container).getByRole("button", { name: "Xóa danh mục Khác" })).toBeTruthy();
 }, 20000);
+
+it("đổi tên danh mục chi đồng bộ lịch sử và định kỳ nhưng không đổi khoản thu cùng tên", async () => {
+  const today = new Date();
+  const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  server.data.categories = { expense: ["Ăn uống", "Khác"], income: ["Ăn uống"] };
+  server.data.entries = [
+    { id: "e1", type: "expense", amount: 1200, category: "Ăn uống", note: "Bữa ăn", wallet: "cash", date, origin: "r1:2026-01-01" },
+    { id: "e2", type: "income", amount: 300, category: "Ăn uống", note: "Thu", wallet: "cash", date },
+  ];
+  server.data.rules = [
+    { id: "r1", type: "expense", amount: 1200, category: "Ăn uống", note: "Bữa ăn", wallet: "cash", next: date, active: false, anchorDay: 15 },
+    { id: "r2", type: "income", amount: 300, category: "Ăn uống", note: "Thu", wallet: "cash", next: date, active: true },
+  ];
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
+  await user.click(screen.getByRole("button", { name: "Quản lý danh mục" }));
+  let dialog = within(screen.getByRole("dialog"));
+  await user.click(dialog.getByRole("button", { name: "Sửa danh mục Ăn uống" }));
+  const name = dialog.getByLabelText("Đổi tên “Ăn uống”");
+  expect(document.activeElement).toBe(name);
+  await user.clear(name); await user.type(name, "Ăn uống gia đình");
+  await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  await waitFor(() => expect(server.version).toBe(1));
+  expect((server.data.categories as {expense:string[];income:string[]}).expense).toEqual(["Ăn uống gia đình", "Khác"]);
+  expect((server.data.categories as {expense:string[];income:string[]}).income).toEqual(["Ăn uống"]);
+  expect(server.data.entries).toEqual([
+    expect.objectContaining({ id: "e1", type: "expense", category: "Ăn uống gia đình", amount: 1200, origin: "r1:2026-01-01" }),
+    expect.objectContaining({ id: "e2", type: "income", category: "Ăn uống", amount: 300 }),
+  ]);
+  expect(server.data.rules).toEqual([
+    expect.objectContaining({ id: "r1", category: "Ăn uống gia đình", active: false, anchorDay: 15 }),
+    expect.objectContaining({ id: "r2", category: "Ăn uống", active: true }),
+  ]);
+  dialog = within(screen.getByRole("dialog"));
+  expect(dialog.getByRole("button", { name: "Sửa danh mục Ăn uống gia đình" })).toBeTruthy();
+  await user.click(dialog.getByRole("button", { name: "Đóng" }));
+  await user.click(screen.getAllByRole("button", { name: "Báo cáo" })[0]);
+  expect(screen.getByText("Ăn uống gia đình")).toBeTruthy();
+}, 20000);
+
+it("từ chối tên trống hoặc trùng, cho phép hủy và đổi tên danh mục thu", async () => {
+  server.data.categories = { expense: ["Ăn uống", "Khác"], income: ["Lương", "Thưởng"] };
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
+  await user.click(screen.getByRole("button", { name: "Quản lý danh mục" }));
+  const dialog = within(screen.getByRole("dialog"));
+  await user.click(dialog.getByRole("button", { name: "Sửa danh mục Ăn uống" }));
+  let name = dialog.getByLabelText("Đổi tên “Ăn uống”");
+  await user.clear(name); await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  expect(dialog.getByRole("alert").textContent).toContain("Vui lòng nhập tên");
+  await user.type(name, "KHÁC"); await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  expect(dialog.getByRole("alert").textContent).toContain("đã tồn tại");
+  expect(server.version).toBe(0);
+  await user.click(dialog.getByRole("button", { name: "Hủy" }));
+  expect(dialog.getByRole("button", { name: "Sửa danh mục Ăn uống" })).toBeTruthy();
+  await user.click(dialog.getByRole("button", { name: "Thu nhập" }));
+  await user.click(dialog.getByRole("button", { name: "Sửa danh mục Lương" }));
+  name = dialog.getByLabelText("Đổi tên “Lương”");
+  await user.clear(name); await user.type(name, "Lương chính{Enter}");
+  await waitFor(() => expect(server.version).toBe(1));
+  expect((server.data.categories as {income:string[]}).income).toEqual(["Lương chính", "Thưởng"]);
+}, 20000);
+
+it("cảnh báo trước khi gộp danh mục đã xóa còn trong lịch sử", async () => {
+  server.data.entries = [{ id: "old", type: "expense", amount: 250, category: "Du lịch cũ", note: "", wallet: "cash", date: "2026-01-01" }];
+  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
+  await user.click(screen.getByRole("button", { name: "Quản lý danh mục" }));
+  const dialog = within(screen.getByRole("dialog"));
+  await user.click(dialog.getByRole("button", { name: "Sửa danh mục Ăn uống" }));
+  const name = dialog.getByLabelText("Đổi tên “Ăn uống”");
+  await user.clear(name); await user.type(name, "Du lịch cũ");
+  await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(confirm.mock.calls[0][0]).toContain("gộp");
+  expect(server.version).toBe(0);
+  await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  await waitFor(() => expect(server.version).toBe(1));
+  expect((server.data.entries as {category:string}[])[0].category).toBe("Du lịch cũ");
+  expect((server.data.categories as {expense:string[]}).expense).toEqual(["Du lịch cũ", "Khác"]);
+}, 20000);
+
+it("đồng bộ tên danh mục đã sửa sang phiên khác", async () => {
+  const user = userEvent.setup();
+  const first = render(<Page />); const second = render(<Page />);
+  await within(first.container).findByText("Đã đồng bộ");
+  await within(second.container).findByText("Đã đồng bộ");
+  await user.click(within(first.container).getByRole("button", { name: "Mở tài khoản" }));
+  await user.click(within(first.container).getByRole("button", { name: "Quản lý danh mục" }));
+  await user.click(within(first.container).getByRole("button", { name: "Sửa danh mục Ăn uống" }));
+  const name = within(first.container).getByLabelText("Đổi tên “Ăn uống”");
+  await user.clear(name); await user.type(name, "Ăn uống mới");
+  await user.click(within(first.container).getByRole("button", { name: "Lưu tên" }));
+  await waitFor(() => expect(server.version).toBe(1));
+  fireEvent.focus(window);
+  await user.click(within(second.container).getByRole("button", { name: "Mở tài khoản" }));
+  await user.click(within(second.container).getByRole("button", { name: "Quản lý danh mục" }));
+  await waitFor(() => expect(within(second.container).getByRole("button", { name: "Sửa danh mục Ăn uống mới" })).toBeTruthy());
+  expect(within(second.container).queryByRole("button", { name: "Sửa danh mục Ăn uống" })).toBeNull();
+}, 20000);

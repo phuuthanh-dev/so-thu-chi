@@ -30,7 +30,7 @@ Mở URL Local được in ra. Kiểm tra `npm run lint` và `npm run build`. N�
 
 - Người dùng mới bắt đầu với một ví tiền mặt rỗng, không có dữ liệu mẫu.
 - Trong Ví của tôi, có thể sửa tên và số dư ban đầu; thay đổi số dư ban đầu sẽ làm thay đổi số dư theo ghi chép. Ví chưa có giao dịch được xóa sau khi xác nhận. Ví đã có giao dịch được lưu trữ và có thể khôi phục, lịch sử giao dịch được giữ lại. Trước khi xóa ví gắn với quy tắc định kỳ, hãy sửa quy tắc sang ví khác; luôn cần ít nhất một ví đang sử dụng.
-- Trong Cài đặt → Quản lý danh mục, có thể thêm hoặc xóa danh mục thu và chi. Xóa chỉ bỏ danh mục khỏi danh sách chọn mới; giao dịch cũ và quy tắc định kỳ vẫn giữ danh mục cũ và có thể chỉnh sửa. Có thể thêm lại danh mục cùng tên. Nếu xóa hết danh mục của một loại, cần thêm lại trước khi tạo giao dịch mới thuộc loại đó.
+- Trong Cài đặt → Quản lý danh mục, có thể thêm, đổi tên hoặc xóa danh mục thu và chi. Đổi tên cập nhật giao dịch và quy tắc định kỳ cùng loại; nếu tên mới trùng với danh mục cũ đã xóa nhưng còn lịch sử, ứng dụng sẽ yêu cầu xác nhận trước khi gộp trên báo cáo. Xóa chỉ bỏ danh mục khỏi danh sách chọn mới; giao dịch cũ và quy tắc định kỳ vẫn giữ danh mục cũ và có thể chỉnh sửa. Có thể thêm lại danh mục cùng tên. Nếu xóa hết danh mục của một loại, cần thêm lại trước khi tạo giao dịch mới thuộc loại đó.
 - Trong Cài đặt, chọn ảnh đại diện JPG/PNG/WebP tối đa 5 MB, kéo hoặc dùng thanh trượt để chỉnh vị trí và độ phóng rồi nhấn Lưu ảnh. Có thể thu nhỏ để giữ toàn bộ ảnh trong khung tròn. Ảnh được thu nhỏ và lưu cùng sổ của tài khoản để đồng bộ; ảnh chiếm một phần giới hạn 2 MB của sổ và bản nháp chưa đồng bộ có thể chứa ảnh trên trình duyệt. Nút hiệu ứng hoa đào lưu lựa chọn theo từng thiết bị và tôn trọng thiết lập giảm chuyển động của hệ điều hành.
 - Khi ghi, server so sánh version. Nếu hai thiết bị cùng sửa, bản cũ bị từ chối thay vì âm thầm ghi đè. Bản nháp chưa được xác nhận được lưu riêng theo tài khoản trong trình duyệt, có thể khôi phục sau khi tải lại. Bản nháp chứa thông tin tài chính không mã hóa và không theo sang thiết bị khác; xóa dữ liệu trình duyệt có thể làm mất bản nháp. Khi xung đột, hãy đối chiếu và nhập lại thay đổi vào dữ liệu mới.
 - Ứng dụng đọc lại dữ liệu khi quay lại cửa sổ và khoảng mỗi 20 giây khi không sửa hoặc có bản nháp chưa lưu. Cần kết nối mạng.
@@ -43,4 +43,4 @@ Với PostgreSQL dùng riêng cho kiểm thử (không dùng database cá nhân)
 
 ## Phạm vi còn lại
 
-Màn hình lịch, báo cáo năm, khôi phục tài khoản, sao lưu/khôi phục, đổi tên danh mục, chia sẻ sổ, export (P1), PWA và ngân sách theo danh mục chưa hoàn thành. Không có kết nối ngân hàng, chuyển tiền hoặc thanh toán.
+Màn hình lịch, báo cáo năm, khôi phục tài khoản, sao lưu/khôi phục, chia sẻ sổ, export (P1), PWA và ngân sách theo danh mục chưa hoàn thành. Không có kết nối ngân hàng, chuyển tiền hoặc thanh toán.

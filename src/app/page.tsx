@@ -30,6 +30,7 @@ import {
   LayoutGrid,
   Menu,
   MoreHorizontal,
+  Pencil,
   Plus,
   Repeat2,
   Search,
@@ -164,12 +165,19 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     [menu, setMenu] = useState(false),
     [editId, setEditId] = useState<string | null>(null),
     [newCategory, setNewCategory] = useState(""),
+    [editingCategory, setEditingCategory] = useState<string | null>(null),
+    [categoryEditName, setCategoryEditName] = useState(""),
+    [categoryEditError, setCategoryEditError] = useState(""),
     [ruleId, setRuleId] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarBackdropRef = useRef<HTMLButtonElement>(null);
+  const categoryEditInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editingCategory !== null) categoryEditInputRef.current?.focus();
+  }, [editingCategory]);
   const mountedRef = useRef(false);
   useEffect(() => {
     mountedRef.current = true;
@@ -470,7 +478,27 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     );
   const avatar = data.avatar && /^data:image\/(webp|jpeg);base64,/.test(data.avatar) ? data.avatar : null;
   const renderAvatar = () => avatar ? <Image src={avatar} alt="" width={40} height={40} unoptimized /> : "M";
-  const closeModal = () => { setModal(null); setAvatarFile(null); setAvatarError(""); };
+  const closeModal = () => { setModal(null); setAvatarFile(null); setAvatarError(""); setEditingCategory(null); setCategoryEditError(""); };
+  const renameCategory = () => {
+    if (editingCategory === null) return;
+    const name = categoryEditName.trim();
+    if (!name) { setCategoryEditError("Vui lòng nhập tên danh mục."); return; }
+    if (name === editingCategory) { setEditingCategory(null); setCategoryEditError(""); return; }
+    const normalized = (value: string) => value.normalize("NFC").toLocaleLowerCase("vi-VN");
+    if (data.categories[kind].some((item) => item !== editingCategory && normalized(item) === normalized(name))) {
+      setCategoryEditError("Tên danh mục đã tồn tại. Vui lòng chọn tên khác.");
+      return;
+    }
+    const previouslyUsed = data.entries.some((item) => item.type === kind && item.category === name)
+      || data.rules.some((item) => item.type === kind && item.category === name);
+    if (previouslyUsed && !confirm(`Tên “${name}” đã được dùng trong giao dịch hoặc định kỳ cũ. Đổi tên sẽ gộp các khoản này vào cùng danh mục trong báo cáo. Bạn có muốn tiếp tục?`)) return;
+    if (save({
+      ...data,
+      categories: { ...data.categories, [kind]: data.categories[kind].map((item) => item === editingCategory ? name : item) },
+      entries: data.entries.map((item) => item.type === kind && item.category === editingCategory ? { ...item, category: name } : item),
+      rules: data.rules.map((item) => item.type === kind && item.category === editingCategory ? { ...item, category: name } : item),
+    })) { setEditingCategory(null); setCategoryEditError(""); }
+  };
   const changeAvatar = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
@@ -1264,7 +1292,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               <div className="setting-row">
                 <div>
                   <strong>Danh mục</strong>
-                  <p>Thêm danh mục thu hoặc chi phù hợp với bạn.</p>
+                  <p>Thêm, đổi tên hoặc xóa danh mục thu và chi.</p>
                 </div>
                 <button
                   className="outline-btn"
@@ -1622,6 +1650,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
+                  if (editingCategory !== null) { renameCategory(); return; }
                   const c = newCategory.trim();
                   if (!c || data.categories[kind].includes(c)) return;
                   if (
@@ -1640,34 +1669,47 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                   <button
                     type="button"
                     className={kind === "expense" ? "selected" : ""}
-                    onClick={() => setKind("expense")}
+                    onClick={() => { setKind("expense"); setEditingCategory(null); setCategoryEditError(""); }}
                   >
                     Chi tiêu
                   </button>
                   <button
                     type="button"
                     className={kind === "income" ? "selected" : ""}
-                    onClick={() => setKind("income")}
+                    onClick={() => { setKind("income"); setEditingCategory(null); setCategoryEditError(""); }}
                   >
                     Thu nhập
                   </button>
                 </div>
-                <p className="modal-desc category-delete-hint">Xóa khỏi danh sách chọn; giao dịch cũ và giao dịch định kỳ vẫn giữ danh mục này.</p>
+                <p className="modal-desc category-delete-hint">Đổi tên sẽ cập nhật giao dịch và định kỳ. Khi xóa, dữ liệu cũ vẫn được giữ.</p>
                 <div className="category-chips">
                   {data.categories[kind].map((c) => (
+                    editingCategory === c ? (
+                      <div className="category-edit" key={c}>
+                        <label htmlFor="category-edit-name">Đổi tên “{c}”</label>
+                        <input id="category-edit-name" ref={categoryEditInputRef} value={categoryEditName} aria-invalid={!!categoryEditError} aria-describedby={categoryEditError ? "category-edit-error" : undefined} onChange={(e) => { setCategoryEditName(e.target.value); setCategoryEditError(""); }} />
+                        {categoryEditError && <p id="category-edit-error" className="category-edit-error" role="alert">{categoryEditError}</p>}
+                        <div className="category-edit-actions">
+                          <button type="button" className="outline-btn" onClick={() => { setEditingCategory(null); setCategoryEditError(""); }}>Hủy</button>
+                          <button type="submit" className="primary-btn">Lưu tên</button>
+                        </div>
+                      </div>
+                    ) : (
                     <div className="category-chip" key={c}>
                       <span className="category-chip-name">{c}</span>
-                      <button type="button" className="category-delete" aria-label={`Xóa danh mục ${c}`} onClick={() => {
+                      <button type="button" className="category-edit-button" aria-label={`Sửa danh mục ${c}`} disabled={editingCategory !== null} onClick={() => { setEditingCategory(c); setCategoryEditName(c); setCategoryEditError(""); }}><Pencil size={16} aria-hidden="true" /></button>
+                      <button type="button" className="category-delete" aria-label={`Xóa danh mục ${c}`} disabled={editingCategory !== null} onClick={() => {
                         const recurring = data.rules.some((rule) => rule.type === kind && rule.category === c);
                         const message = `Xóa danh mục “${c}” khỏi danh sách lựa chọn? Giao dịch đã ghi sẽ được giữ nguyên.${recurring ? " Giao dịch định kỳ đang dùng danh mục này vẫn tiếp tục hoạt động." : ""}`;
                         if (!confirm(message)) return;
                         save({ ...data, categories: { ...data.categories, [kind]: data.categories[kind].filter((name) => name !== c) } });
                       }}><Trash2 size={16} aria-hidden="true" /></button>
                     </div>
+                    )
                   ))}
                   {!data.categories[kind].length && <p className="category-empty-list">Chưa có danh mục nào.</p>}
                 </div>
-                <label>
+                {editingCategory === null && <><label>
                   Tên danh mục mới
                   <input
                     value={newCategory}
@@ -1678,6 +1720,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                 <button className="primary-btn form-submit">
                   Thêm danh mục
                 </button>
+                </>}
               </form>
             )}
           </div>
