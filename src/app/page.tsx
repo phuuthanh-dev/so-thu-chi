@@ -734,8 +734,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                   : "Mọi điều về tài chính, gói gọn ở đây."}
               </p>
             </div>
-            <button className="primary-btn" onClick={() => openEntry()}>
-              <Plus size={18} /> Thêm giao dịch
+            <button className="primary-btn" aria-label="Thêm giao dịch" onClick={() => openEntry()}>
+              <Plus size={18} aria-hidden="true" /> <span className="add-transaction-label">Thêm giao dịch</span>
             </button>
           </div>
           {!["settings", "wallets", "recurring"].includes(tab) && (
