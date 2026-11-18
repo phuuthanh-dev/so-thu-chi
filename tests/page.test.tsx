@@ -28,6 +28,51 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+it("mở cài đặt từ avatar và quay về tổng quan từ không gian cá nhân", async () => {
+  const user = userEvent.setup(); const { container } = render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
+  expect(screen.getByRole("heading", { name: "Cài đặt & dữ liệu" })).toBeTruthy();
+  expect(screen.getByText("Tài khoản của bạn")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Mở tổng quan sổ cá nhân" }));
+  expect(screen.getByRole("heading", { name: /Chào bạn/ })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Cài đặt tài khoản" }));
+  expect(screen.getByRole("heading", { name: "Cài đặt & dữ liệu" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Không gian của tôi" }));
+  expect(screen.getByRole("heading", { name: /Chào bạn/ })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Mở menu" }));
+  expect(container.querySelector("aside")?.classList.contains("open")).toBe(true);
+  await user.click(screen.getByRole("button", { name: /^Cài đặt$/ }));
+  expect(container.querySelector("aside")?.classList.contains("open")).toBe(false);
+  expect(screen.getByRole("heading", { name: "Cài đặt & dữ liệu" })).toBeTruthy();
+  await user.click(screen.getAllByRole("button", { name: "Thêm giao dịch" })[0]);
+  expect(screen.getByRole("dialog")).toBeTruthy();
+});
+
+it("các nút điều hướng chính và biểu mẫu đều mở đúng nội dung", async () => {
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Sửa ngân sách" }));
+  expect(within(screen.getByRole("dialog")).getByRole("heading", { name: "Ngân sách tháng" })).toBeTruthy();
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Đóng" }));
+  await user.click(screen.getByRole("button", { name: "Chi tiết" }));
+  expect(screen.getByRole("heading", { name: "Báo cáo", level: 1 })).toBeTruthy();
+  await user.click(screen.getAllByRole("button", { name: "Giao dịch" })[0]);
+  expect(screen.getByRole("heading", { name: "Giao dịch", level: 1 })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Thêm mới" }));
+  expect(within(screen.getByRole("dialog")).getByRole("heading", { name: "Thêm giao dịch" })).toBeTruthy();
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Đóng" }));
+  await user.click(screen.getAllByRole("button", { name: "Ví của tôi" })[0]);
+  await user.click(screen.getByRole("button", { name: "Thêm ví" }));
+  expect(within(screen.getByRole("dialog")).getByRole("heading", { name: "Thêm ví mới" })).toBeTruthy();
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Đóng" }));
+  await user.click(screen.getAllByRole("button", { name: "Ngân sách" })[0]);
+  expect(screen.getByRole("heading", { name: "Ngân sách", level: 1 })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Định kỳ" }));
+  await user.click(screen.getByRole("button", { name: "Tạo giao dịch" }));
+  expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Khoản thu" })).toBeTruthy();
+});
+
 it("gợi ý số tiền và chỉ thay đổi giá trị khi người dùng chọn", async () => {
   const user = userEvent.setup(); render(<Page />);
   await screen.findByText("Đã đồng bộ");

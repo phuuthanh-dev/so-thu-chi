@@ -7,3 +7,32 @@
 .wallet-manage{flex-wrap:wrap}.wallet-manage>div:not(.wallet-actions){min-width:130px}.wallet-row>.wallet-actions{flex:0 0 auto;display:flex;gap:8px}.wallet-action{min-height:44px;min-width:52px;padding:8px 12px;border:1px solid #d8e4d8;border-radius:8px;background:#fff;color:#3c654a;font-weight:700;font-size:12px}.wallet-action:hover{background:#f1f7f0}.wallet-action:focus-visible{outline:3px solid #5a8a6a;outline-offset:2px}.wallet-remove{color:#9f413a;border-color:#e8d2cf}.wallet-remove:hover{background:#fff4f2}.archived-wallets{margin-top:28px}.archived-wallets h3{font-size:14px}.archived-wallets p{font-size:12px;color:#667b6c;line-height:1.5}.archived-wallets .wallet-row{padding:12px 0}@media(max-width:480px){.wallet-manage>.wallet-actions{flex:0 0 100%;justify-content:flex-end}.wallet-manage>b{margin-left:auto}.wallet-manage .wallet-action{flex:1}}
 .amount-suggestions{margin:-5px 0 16px}.amount-suggestions p{color:#60766a;font-size:12px;margin:0 0 8px}.amount-suggestions>div{display:flex;gap:8px;flex-wrap:wrap}.amount-suggestions button{flex:1 1 auto;min-height:44px;padding:8px 10px;border:1px solid #cfdfd0;border-radius:8px;background:#f4f8f2;color:#315b42;font-size:12px;font-weight:700;white-space:nowrap}.amount-suggestions button:hover{background:#e9f2e8}.amount-suggestions button:focus-visible{outline:3px solid #5a8a6a;outline-offset:2px}
 .brand-mark{background:transparent;flex-shrink:0}.brand-mark img{display:block;width:100%;height:100%;object-fit:contain}
+.workspace,.profile{text-align:left;width:100%;font:inherit}.profile{background:transparent;border:0;border-top:1px solid var(--line);color:inherit}.avatar-button{border:0;flex-shrink:0}.breadcrumb-home{border:0;padding:6px 0;background:transparent;color:inherit;font:inherit}.workspace:hover,.profile:hover,.breadcrumb-home:hover{filter:brightness(.96)}@media(max-width:760px){.page-heading>button.primary-btn{width:46px;height:46px;padding:0;flex:none}.page-heading>button.primary-btn svg{width:20px;height:20px;flex:none}}
+/* Pink pastel surfaces with darker text and controls for legibility. */
+:root{--ink:#49343d;--muted:#80636e;--line:#f1dfe6;--green:#984c68;--bg:#fff6f8}
+body,.auth-screen{background:var(--bg);color:var(--ink)}
+.sidebar,.topbar,.mobile-nav{background:#fffafb;border-color:#f1dfe6}
+.card,.stat-card,.auth-card,.modal{background:#fffdfd;border-color:#f2e1e7;box-shadow:0 6px 25px #b75d7a0d}
+.workspace,.tip,.soft-note,.budget-illustration{background:#fff1f5;border-color:#f2dce5;color:#785262}
+.workspace-icon,.wallet-icon,.stat-icon.green{background:#f9e4eb;color:#984c68}
+.nav-item,.breadcrumb,.icon-btn{color:#795d69}
+.nav-item.active{background:#fbe8ef;color:#87435d}
+.nav-dot{background:#bf7892}
+.primary-btn{background:#984c68;color:#fff}.primary-btn:hover{background:#7f3d56}
+.stat-card.dark{background:#984c68;border-color:#984c68;color:#fff}.dark .stat-top,.dark small{color:#fff1f5}
+.eyebrow,.card-kicker,.stat-top,.side-label{color:#8b6474}
+.brand strong,.breadcrumb strong,.transaction-name{color:var(--ink)}
+.page-heading p,.card-heading p,.auth-card>p,.auth-hint,.modal-desc,.setting-row p,.footnote,.archived-wallets p{color:#765b67}
+.profile small,.workspace small,.transaction-name small,.wallet-row small,.stat-card small,.budget-number span,.progress-label,.period-row,.empty,footer{color:#806772}
+.text-link,.auth-switch button{color:#8f4964}
+.outline-btn,.wallet-action{background:#fffafb;border-color:#ecd3dc;color:#87435d}.outline-btn:hover,.wallet-action:hover{background:#fbeaf0}
+.wallet-remove{color:#a23f50;border-color:#efcdd4}.wallet-remove:hover{background:#fff1f2}
+.period,.filters select,.modal input:not([type=checkbox]),.modal select,.auth-card input,.search{border-color:#ecd9e1;background:#fffafb;color:#533d47}
+.modal form>label,.form-grid label,.auth-card label{color:#704f5d}.modal label em{color:#806772}
+.modal-backdrop{background:#55384699}.type-switch{background:#f9eaf0}.type-switch button{color:#82616d}.type-switch button.selected{background:#fff;color:#87435d}
+.checkbox input{accent-color:#984c68}.progress,.mini-progress{background:#f7e8ed}.progress>div,.mini-progress>div{background:#c986a0}
+.amount-suggestions p{color:#704f5d}.amount-suggestions button{background:#fff3f7;border-color:#ebd2dc;color:#87435d}.amount-suggestions button:hover{background:#fbe5ed}
+.avatar{background:#f7dbe5;color:#7b4058}.avatar-button:hover{background:#f1cbd9}
+.mobile-nav button{color:#806772}.mobile-nav button.selected{color:#984c68}
+button:focus-visible,input:focus-visible,select:focus-visible,.wallet-action:focus-visible,.amount-suggestions button:focus-visible{outline:3px solid #a15472;outline-offset:2px}
+.stat-card.dark small,.stat-card.dark small span{color:#fff1f5}

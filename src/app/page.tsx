@@ -493,13 +493,13 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
             <X size={19} />
           </button>
         </div>
-        <div className="workspace">
+        <button type="button" className="workspace" aria-label="Mở tổng quan sổ cá nhân" onClick={() => { setTab("overview"); setMenu(false); }}>
           <div className="workspace-icon">N</div>
           <div>
             <strong>Không gian của tôi</strong>
             <small>Sổ cá nhân</small>
           </div>
-        </div>
+        </button>
         <p className="side-label">KHÔNG GIAN CỦA BẠN</p>
         <nav>
           {nav.map(({ id, label, Icon }) => (
@@ -527,17 +527,17 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
             </strong>
             <p>Ghi chép hôm nay để an tâm hơn ngày mai.</p>
           </div>
-          <button className="nav-item" onClick={() => setTab("settings")}>
+          <button className="nav-item" onClick={() => { setTab("settings"); setMenu(false); }}>
             <Settings size={18} /> Cài đặt
           </button>
-          <div className="profile">
+          <button type="button" className="profile" aria-label="Cài đặt tài khoản" onClick={() => { setTab("settings"); setMenu(false); }}>
             <div className="avatar">M</div>
             <div>
               <strong>{user.phone || "Tài khoản"}</strong>
               <small>Chủ sở hữu</small>
             </div>
             <MoreHorizontal size={18} />
-          </div>
+          </button>
         </div>
       </aside>
       <main className="main">
@@ -550,7 +550,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
             <Menu size={20} />
           </button>
           <div className="breadcrumb">
-            Không gian của tôi <span>/</span>{" "}
+            <button type="button" className="breadcrumb-home" onClick={() => setTab("overview")}>Không gian của tôi</button> <span>/</span>{" "}
             <strong>{nav.find((x) => x.id === tab)?.label || "Cài đặt"}</strong>
           </div>
           <div className="top-actions">
@@ -571,7 +571,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
             >
               <CircleHelp size={19} />
             </button>
-            <div className="avatar small">M</div>
+            <button type="button" className="avatar small avatar-button" aria-label="Mở tài khoản" onClick={() => { setTab("settings"); setMenu(false); }}>M</button>
           </div>
         </header>
         <div className="content">
@@ -1125,6 +1125,12 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
             <section className="card full-card">
               <div className="card-kicker">KHÔNG GIAN CỦA BẠN</div>
               <h2>Cài đặt & dữ liệu</h2>
+              <div className="setting-row account-summary">
+                <div>
+                  <strong>Tài khoản của bạn</strong>
+                  <p>{user.phone || "Sổ cá nhân"} · Chủ sở hữu</p>
+                </div>
+              </div>
               <div className="soft-note">
                 Dữ liệu được lưu theo tài khoản của bạn. Số điện thoại chưa được
                 xác minh qua SMS và hiện chưa có khôi phục mật khẩu tự động.
@@ -1226,7 +1232,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
           <button
             key={id}
             className={tab === id ? "selected" : ""}
-            onClick={() => setTab(id)}
+            onClick={() => { setTab(id); setMenu(false); }}
           >
             <Icon size={19} />
             <span>{label}</span>
