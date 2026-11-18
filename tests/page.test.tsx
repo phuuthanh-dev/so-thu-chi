@@ -28,6 +28,26 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+it("gợi ý số tiền và chỉ thay đổi giá trị khi người dùng chọn", async () => {
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getAllByRole("button", { name: /Thêm giao dịch/ })[0]);
+  const dialog = screen.getByRole("dialog");
+  const amount = within(dialog).getByLabelText(/Số tiền/) as HTMLInputElement;
+  await user.type(amount, "40");
+  expect(amount.value).toBe("40");
+  const suggestions = within(dialog).getByRole("group", { name: "Gợi ý số tiền" });
+  expect(within(suggestions).getByRole("button", { name: "40.000 ₫" })).toBeTruthy();
+  expect(within(suggestions).getByRole("button", { name: "400.000 ₫" })).toBeTruthy();
+  expect(within(suggestions).getByRole("button", { name: "4.000.000 ₫" })).toBeTruthy();
+  await user.click(within(suggestions).getByRole("button", { name: "400.000 ₫" }));
+  expect(amount.value).toBe("400000");
+  expect(within(dialog).queryByRole("group", { name: "Gợi ý số tiền" })).toBeNull();
+  await user.click(within(dialog).getByRole("button", { name: /Lưu giao dịch/ }));
+  await waitFor(() => expect(server.version).toBe(1));
+  expect((server.data.entries as { amount: number }[])[0].amount).toBe(400000);
+});
+
 it("báo mất đồng bộ khi lần tải nền thất bại rồi hồi phục khi kết nối trở lại", async () => {
   render(<Page />);
   await screen.findByText("Đã đồng bộ");

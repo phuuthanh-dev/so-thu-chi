@@ -128,6 +128,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
     >(null),
     [kind, setKind] = useState<Kind>("expense"),
     [amount, setAmount] = useState(""),
+    [showAmountSuggestions, setShowAmountSuggestions] = useState(false),
     [date, setDate] = useState(""),
     [category, setCategory] = useState("Ăn uống"),
     [note, setNote] = useState(""),
@@ -325,6 +326,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
   const openEntry = (t: Kind = "expense", e?: Entry) => {
     setKind(e?.type || t);
     setAmount(e ? String(e.amount) : "");
+    setShowAmountSuggestions(false);
     setDate(e?.date || dateISO());
     setCategory(e?.category || data?.categories[t][0] || "Khác");
     setNote(e?.note || "");
@@ -1086,6 +1088,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                         setRuleId(r.id);
                         setKind(r.type);
                         setAmount(String(r.amount));
+                        setShowAmountSuggestions(false);
                         setCategory(r.category);
                         setNote(r.note);
                         setWallet(r.wallet);
@@ -1303,16 +1306,36 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                   <div className="amount-input">
                     <input
                       type="number"
+                      inputMode="numeric"
                       min="1"
                       step="1"
                       required
                       placeholder="0"
                       value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
+                      onChange={(e) => {
+                        setAmount(e.target.value);
+                        setShowAmountSuggestions(true);
+                      }}
                     />
                     <b>₫</b>
                   </div>
                 </label>
+                {showAmountSuggestions && /^[0-9]+$/.test(amount) && Number(amount) > 0 && Number.isSafeInteger(Number(amount) * 1000) && (
+                  <div className="amount-suggestions" role="group" aria-label="Gợi ý số tiền">
+                    <p>Chọn nhanh số tiền</p>
+                    <div>
+                      {[1000, 10000, 100000]
+                        .map((multiplier) => Number(amount) * multiplier)
+                        .filter((value) => Number.isSafeInteger(value))
+                        .map((value) => (
+                          <button key={value} type="button" onClick={() => {
+                            setAmount(String(value));
+                            setShowAmountSuggestions(false);
+                          }}>{money(value)}</button>
+                        ))}
+                    </div>
+                  </div>
+                )}
                 <div className="form-grid">
                   <label>
                     {modal === "rule"
