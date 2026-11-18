@@ -32,6 +32,22 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+it("mở trang phân tích riêng từ báo cáo mà không ghi dữ liệu", async () => {
+  const user = userEvent.setup();
+  render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  expect(screen.getByRole("heading", { name: "Giao dịch gần đây" })).toBeTruthy();
+  await user.click(screen.getAllByRole("button", { name: "Báo cáo" })[0]);
+  expect(screen.getByRole("heading", { name: "Xu hướng 6 tháng" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Phân tích danh mục" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Giao dịch gần đây" })).toBeNull();
+  const firstMonth = within(screen.getByRole("region", { name: "Xu hướng 6 tháng" })).getAllByRole("button")[0];
+  const firstMonthLabel = firstMonth.getAttribute("aria-label")!;
+  await user.click(firstMonth);
+  expect(screen.getByRole("button", { name: firstMonthLabel }).getAttribute("aria-pressed")).toBe("true");
+  expect(server.version).toBe(0);
+});
+
 it("lưu, thay và xóa ảnh đại diện theo tài khoản mà giữ giao dịch", async () => {
   server.data.entries = [{ id: "old", type: "expense", amount: 100, category: "Ăn uống", note: "", wallet: "cash", date: "2026-11-01" }];
   vi.mocked(prepareAvatar).mockResolvedValueOnce("data:image/webp;base64,YQ==").mockResolvedValueOnce("data:image/webp;base64,Yg==");

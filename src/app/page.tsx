@@ -6,6 +6,7 @@ import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { PetalFall } from "./petals";
 import { AvatarEditor } from "./avatar-editor";
+import { Report } from "./report";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { AuthGate } from "./auth";
 import {
@@ -774,6 +775,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               <p>
                 {tab === "overview"
                   ? "Một chút quan tâm mỗi ngày, tài chính thêm thảnh thơi."
+                  : tab === "reports"
+                    ? "Hiểu dòng tiền, dịu dàng với kế hoạch của bạn."
                   : "Theo dõi tài chính của bạn."}
               </p>
             </div>
@@ -799,7 +802,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               <span>Dữ liệu trong tháng được chọn</span>
             </div>
           )}
-          {(tab === "overview" || tab === "reports") && (
+          {tab === "overview" && (
             <>
               <div className="stats-grid">
                 <div className="stat-card">
@@ -918,7 +921,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                     </button>
                   </div>
                   {breakdown.length ? (
-                    visibleBreakdown(breakdown, tab === "reports").map(
+                    visibleBreakdown(breakdown, false).map(
                       ([name, value]) => (
                         <div className="category-row" key={name}>
                           <span
@@ -987,6 +990,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               </div>
             </>
           )}
+          {tab === "reports" && <Report entries={data.entries} month={month} onSelectMonth={setMonth} />}
           {tab === "transactions" && (
             <section className="card full-card">
               <div className="card-heading">
