@@ -390,7 +390,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     setAmount(e ? String(e.amount) : "");
     setShowAmountSuggestions(false);
     setDate(e?.date || dateISO());
-    setCategory(e?.category || data?.categories[t][0] || "Khác");
+    setCategory(e?.category || data?.categories[t][0] || "");
     setNote(e?.note || "");
     setWallet(e?.wallet || data?.wallets.find((item) => !item.archived)?.id || "");
     setRepeat(false);
@@ -399,7 +399,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
   };
   const submitEntry = (ev: React.FormEvent) => {
     ev.preventDefault();
-    if (!data || !Number(amount) || !wallet) return;
+    if (!data || !Number(amount) || !wallet || !category) return;
     if (modal === "rule") {
       const existing = data.rules.find((item) => item.id === ruleId);
       if (!existing) return;
@@ -1420,7 +1420,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                     className={kind === "expense" ? "selected" : ""}
                     onClick={() => {
                       setKind("expense");
-                      setCategory(data.categories.expense[0]);
+                      if (kind !== "expense") setCategory(data.categories.expense[0] || "");
                     }}
                   >
                     Khoản chi
@@ -1430,7 +1430,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                     className={kind === "income" ? "selected" : ""}
                     onClick={() => {
                       setKind("income");
-                      setCategory(data.categories.income[0]);
+                      if (kind !== "income") setCategory(data.categories.income[0] || "");
                     }}
                   >
                     Khoản thu
@@ -1504,13 +1504,19 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                   <select
                     required
                     value={category}
+                    aria-describedby={!category ? "category-empty-hint" : undefined}
                     onChange={(e) => setCategory(e.target.value)}
                   >
+                    {!category && <option value="" disabled>Chưa có danh mục</option>}
+                    {category && !data.categories[kind].includes(category) && (editId || modal === "rule") && (
+                      <option value={category}>{category} (đã xóa)</option>
+                    )}
                     {data.categories[kind].map((c) => (
                       <option key={c}>{c}</option>
                     ))}
                   </select>
                 </label>
+                {!category && <p id="category-empty-hint" className="category-empty-hint">Chưa có danh mục. Vào Cài đặt → Quản lý danh mục để thêm.</p>}
                 <label>
                   Ghi chú <em>không bắt buộc</em>
                   <input
@@ -1646,10 +1652,20 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                     Thu nhập
                   </button>
                 </div>
+                <p className="modal-desc category-delete-hint">Xóa khỏi danh sách chọn; giao dịch cũ và giao dịch định kỳ vẫn giữ danh mục này.</p>
                 <div className="category-chips">
                   {data.categories[kind].map((c) => (
-                    <span key={c}>{c}</span>
+                    <div className="category-chip" key={c}>
+                      <span className="category-chip-name">{c}</span>
+                      <button type="button" className="category-delete" aria-label={`Xóa danh mục ${c}`} onClick={() => {
+                        const recurring = data.rules.some((rule) => rule.type === kind && rule.category === c);
+                        const message = `Xóa danh mục “${c}” khỏi danh sách lựa chọn? Giao dịch đã ghi sẽ được giữ nguyên.${recurring ? " Giao dịch định kỳ đang dùng danh mục này vẫn tiếp tục hoạt động." : ""}`;
+                        if (!confirm(message)) return;
+                        save({ ...data, categories: { ...data.categories, [kind]: data.categories[kind].filter((name) => name !== c) } });
+                      }}><Trash2 size={16} aria-hidden="true" /></button>
+                    </div>
                   ))}
+                  {!data.categories[kind].length && <p className="category-empty-list">Chưa có danh mục nào.</p>}
                 </div>
                 <label>
                   Tên danh mục mới
