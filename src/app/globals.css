@@ -61,5 +61,22 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
   .recurring-row>.recurring-amount{grid-column:2;grid-row:2;justify-self:start}
   .wallet-row.recurring-row>.recurring-actions{grid-column:1 / -1;grid-row:3;display:flex;gap:8px;width:100%}
   .recurring-actions .text-link{flex:1;justify-content:center;min-height:44px;border:1px solid #ecd3dc;border-radius:8px;background:#fffafb}
+  .category-row{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:5px 10px}
+  .category-row .category-icon{grid-column:1;grid-row:1 / 3}
+  .category-row .category-name{grid-column:2;grid-row:1;min-width:0;overflow-wrap:anywhere}
+  .category-row strong{grid-column:3;grid-row:1;min-width:0;white-space:nowrap}
+  .category-row .mini-progress{grid-column:2 / 4;grid-row:2;width:100%;margin:0}
 }
 @media(max-width:360px){.stat-card .stat-icon{display:none}.stat-top{letter-spacing:.4px}.card-heading{flex-wrap:wrap}.card-heading>div{flex:1 1 150px}}
+@media(max-width:760px){
+  .sidebar{overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(15px + env(safe-area-inset-bottom))}
+  .sidebar>.brand,.sidebar>.workspace,.sidebar>.side-label,.sidebar>nav,.sidebar>.sidebar-bottom{flex-shrink:0}
+  .topbar .hamburger,.top-actions .icon-btn,.mobile-close,.modal-head .icon-btn{width:44px;height:44px;flex:none}
+  .top-actions .avatar-button{width:44px;height:44px}
+  .topbar{padding-left:12px;padding-right:12px;gap:4px}.top-actions{gap:2px}
+  .period{padding:0 8px;gap:4px}.period button{width:44px;height:44px;flex:none}
+  .content{padding-bottom:calc(75px + env(safe-area-inset-bottom))}
+  .mobile-nav{height:calc(65px + env(safe-area-inset-bottom))}
+  .modal input:not([type=number])::placeholder{font-size:13px;font-weight:400}
+}
+@media(max-width:360px){.auth-screen{padding:16px}.auth-card{padding:24px}.auth-card .brand{margin-bottom:28px}}
