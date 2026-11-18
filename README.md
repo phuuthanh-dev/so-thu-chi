@@ -11,6 +11,12 @@
 5. Sao chép `.env.example` thành `.env.local`, đặt `NEXT_PUBLIC_SUPABASE_URL` và `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` từ cài đặt API của dự án. Có thể dùng khóa anon công khai tương thích nếu dự án chưa có publishable key. **Không bao giờ** đưa service role key, secret key, mật khẩu hoặc chuỗi kết nối database vào biến `NEXT_PUBLIC_*`, source code hay Git.
 6. Đặt hai biến công khai tương tự trong Vercel Project Settings → Environment Variables (Production và Preview nếu cần), sau đó deploy lại. Không triển khai thay thế bản hiện tại trước khi thiết lập và kiểm thử xong các bước này.
 
+## Kiểm tra Supabase định kỳ
+
+- Trên database đã cấu hình, chạy `supabase/migrations/202611180003_availability_probe.sql` trong SQL Editor. Hàm chỉ trả `true`, không truy cập sổ; quyền ẩn danh đối với bảng `ledgers` không thay đổi.
+- Trong GitHub Actions secrets của repository, đặt `SUPABASE_PROBE_URL` và `SUPABASE_PROBE_KEY` bằng URL và publishable/anon key của đúng dự án. Không dùng service role key. Workflow `Supabase availability` kiểm tra API database mỗi 6 giờ và có thể chạy thủ công trong Actions.
+- Đây là kiểm tra cố gắng duy trì hoạt động, không bảo đảm dự án Free không bị tạm dừng hoặc dịch vụ không gián đoạn. Xem kết quả trong GitHub Actions và email cảnh báo của Supabase. GitHub có thể tự tắt lịch của repository công khai sau 60 ngày không có hoạt động; khi đó cần bật lại workflow. Gói Pro tránh tạm dừng do không hoạt động nhưng có phí.
+
 ## Chạy trên máy
 
 ```bash

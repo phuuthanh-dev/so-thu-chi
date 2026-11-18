@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, BarChart3, Sparkles } from "lucide-react";
-import { buildReport, type ReportEntry, type ReportKind } from "@/lib/report";
+import { buildReport, formatReportShare, type ReportEntry, type ReportKind } from "@/lib/report";
 
 const money = (amount: number) => `${new Intl.NumberFormat("vi-VN").format(amount)}\u00a0₫`;
 const labelMonth = (month: string) => `Tháng ${Number(month.slice(5))}/${month.slice(0, 4)}`;
@@ -56,14 +56,14 @@ export function Report({ entries, month, onSelectMonth }: { entries: ReportEntry
           </div>
         </section>
         <section className="card report-panel" aria-labelledby="report-category-title">
-          <div className="report-section-heading"><div><span className="card-kicker">TIỀN ĐẾN VÀ ĐI ĐÂU?</span><h2 id="report-category-title">Phân tích danh mục</h2><p>Tỷ trọng trong {labelMonth(month).toLowerCase()}.</p></div></div>
+          <div className="report-section-heading"><div><span className="card-kicker">TIỀN ĐẾN VÀ ĐI ĐÂU?</span><h2 id="report-category-title">Phân tích danh mục</h2><p>Tỷ trọng trong {labelMonth(month).toLowerCase()} (đã làm tròn).</p></div></div>
           <div className="report-toggle" role="group" aria-label="Loại danh mục">
             <button type="button" aria-pressed={kind === "expense"} onClick={() => setKind("expense")}>Chi tiêu</button>
             <button type="button" aria-pressed={kind === "income"} onClick={() => setKind("income")}>Thu nhập</button>
           </div>
           {categories[kind].length ? <div className="report-categories">
             {categories[kind].map((category, index) => <div className="report-category" key={category.name}>
-              <div className="report-category-heading"><span className="report-rank">{String(index + 1).padStart(2, "0")}</span><div><strong>{category.name}</strong><small>{category.count} giao dịch · {total ? Math.round(category.amount / total * 100) : 0}%</small></div><b>{money(category.amount)}</b></div>
+              <div className="report-category-heading"><span className="report-rank">{String(index + 1).padStart(2, "0")}</span><div><strong>{category.name}</strong><small>{category.count} giao dịch · {formatReportShare(category.amount, total)}</small></div><b>{money(category.amount)}</b></div>
               <div className="report-category-bar" aria-hidden="true"><i style={{ width: `${total ? category.amount / total * 100 : 0}%` }} /></div>
             </div>)}
           </div> : <div className="report-empty">Chưa có khoản {kind === "income" ? "thu" : "chi"} trong tháng này.</div>}

@@ -1,0 +1,32 @@
+name: Supabase availability
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  database-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check database API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_PROBE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_PROBE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_URL" && test -n "$SUPABASE_KEY"
+          result=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 --retry 2 \
+            -H "apikey: $SUPABASE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_KEY" \
+            -H 'Content-Type: application/json' \
+            --data '{}' "$SUPABASE_URL/rest/v1/rpc/app_availability_probe_v1")
+          if [ "$result" != 'true' ]; then
+            echo 'Database probe returned an unexpected response.' >&2
+            exit 1
+          fi
+          echo 'Database probe succeeded.'

@@ -2,7 +2,7 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { buildReport, shiftReportMonth, type ReportEntry } from "../src/lib/report";
+import { buildReport, formatReportShare, shiftReportMonth, type ReportEntry } from "../src/lib/report";
 import { Report } from "../src/app/report";
 
 afterEach(cleanup);
@@ -18,6 +18,14 @@ const entries: ReportEntry[] = [
 ];
 
 describe("báo cáo theo tháng", () => {
+  it("không làm tròn tỷ trọng có giá trị thành 0% hoặc 100%", () => {
+    expect(formatReportShare(1, 1000000)).toBe("<0,1%");
+    expect(formatReportShare(999999, 1000000)).toBe(">99,9%");
+    expect(formatReportShare(1, 3)).toBe("33,3%");
+    expect(formatReportShare(2, 3)).toBe("66,7%");
+    expect(formatReportShare(0, 0)).toBe("0%");
+    expect(formatReportShare(100, 100)).toBe("100%");
+  });
   it("tổng hợp thu chi và xếp hạng danh mục, đúng qua ranh giới năm", () => {
     const report = buildReport(entries, "2026-01");
     expect(shiftReportMonth("2026-01", -1)).toBe("2025-12");
@@ -32,6 +40,20 @@ describe("báo cáo theo tháng", () => {
     expect(report.current).toMatchObject({ income: 0, expense: 0, incomeCount: 0, expenseCount: 0 });
     expect(report.categories).toEqual({ income: [], expense: [] });
     expect(report.previous.expense).toBe(5000);
+  });
+  it("dùng cùng thang đo biểu đồ và hiển thị tỷ trọng rất nhỏ", () => {
+    const edgeEntries: ReportEntry[] = [
+      { date: "2026-01-01", type: "income", amount: 1000, category: "Lương" },
+      { date: "2025-12-01", type: "income", amount: 500, category: "Lương" },
+      { date: "2026-01-02", type: "expense", amount: 1, category: "Khoản nhỏ" },
+      { date: "2026-01-02", type: "expense", amount: 999999, category: "Khoản lớn" },
+    ];
+    const { container } = render(<Report entries={edgeEntries} month="2026-01" onSelectMonth={() => {}} />);
+    expect(screen.getByText(/<0,1%/)).toBeTruthy();
+    expect(screen.getByText(/>99,9%/)).toBeTruthy();
+    const rows = container.querySelectorAll(".report-trend-row");
+    expect((rows[4].querySelector(".report-bar-income") as HTMLElement).style.width).toBe("0.05%");
+    expect((rows[5].querySelector(".report-bar-expense") as HTMLElement).style.width).toBe("100%");
   });
   it("hiển thị so sánh, chuyển danh mục và chọn tháng", async () => {
     const selectMonth = vi.fn();

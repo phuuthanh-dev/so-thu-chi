@@ -2,6 +2,15 @@ export type ReportKind = "income" | "expense";
 export type ReportEntry = { date: string; type: ReportKind; amount: number; category: string };
 export type MonthTotals = { month: string; income: number; expense: number; incomeCount: number; expenseCount: number };
 
+export function formatReportShare(amount: number, total: number): string {
+  if (total <= 0 || amount <= 0) return "0%";
+  if (amount === total) return "100%";
+  const percentage = amount / total * 100;
+  if (percentage < 0.1) return "<0,1%";
+  if (percentage > 99.9) return ">99,9%";
+  return `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(percentage)}%`;
+}
+
 export function shiftReportMonth(month: string, offset: number): string {
   const [year, number] = month.split("-").map(Number);
   const date = new Date(year, number - 1 + offset, 1);
