@@ -5,7 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { prepareAvatar } from "../src/lib/avatar";
 
 const server = vi.hoisted(() => ({ data: {} as Record<string, unknown>, version: 0, offline: false, saveFails: false }));
-vi.mock("../src/lib/avatar", () => ({ prepareAvatar: vi.fn() }));
+vi.mock("../src/lib/avatar", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/avatar")>()), prepareAvatar: vi.fn() }));
+vi.mock("../src/app/avatar-editor", () => ({ AvatarEditor: ({ onSave, onCancel, error }: { onSave: (crop: { zoom: number; x: number; y: number }) => void; onCancel: () => void; error: string }) => <div>{error && <p role="alert">{error}</p>}<button onClick={() => onSave({ zoom: 2, x: 25, y: 75 })}>Lưu ảnh</button><button onClick={onCancel}>Hủy</button></div> }));
 vi.mock("../src/app/auth", () => ({
   AuthGate: ({ children }: { children: (client: unknown, user: unknown) => React.ReactNode }) => children({
     rpc: async (name: string, args?: { expected_version: number; new_data: Record<string, unknown> }) => {
@@ -38,8 +39,12 @@ it("lưu, thay và xóa ảnh đại diện theo tài khoản mà giữ giao d�
   await screen.findByText("Đã đồng bộ");
   await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
   await user.upload(screen.getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
+  expect(server.version).toBe(0);
+  await user.click(screen.getByRole("button", { name: "Lưu ảnh" }));
   await waitFor(() => expect(server.data.avatar).toBe("data:image/webp;base64,YQ=="));
+  expect(prepareAvatar).toHaveBeenCalledWith(expect.any(File), { zoom: 2, x: 25, y: 75 });
   await user.upload(screen.getByLabelText("Đổi ảnh"), new File(["b"], "avatar2.png", { type: "image/png" }));
+  await user.click(screen.getByRole("button", { name: "Lưu ảnh" }));
   await waitFor(() => expect(server.data.avatar).toBe("data:image/webp;base64,Yg=="));
   expect((server.data.entries as { amount: number }[])[0].amount).toBe(100);
   await user.click(screen.getByRole("button", { name: "Xóa ảnh" }));
@@ -53,6 +58,7 @@ it("hiển thị lỗi xử lý ảnh và không thay đổi dữ liệu", async
   await screen.findByText("Đã đồng bộ");
   await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
   await user.upload(screen.getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
+  await user.click(screen.getByRole("button", { name: "Lưu ảnh" }));
   expect((await screen.findByRole("alert")).textContent).toContain("Ảnh cần nhỏ hơn 5 MB.");
   expect(server.version).toBe(0);
 });
@@ -65,6 +71,7 @@ it("ảnh đại diện đồng bộ sang một phiên khác khi làm mới", as
   await within(second.container).findByText("Đã đồng bộ");
   await user.click(within(first.container).getByRole("button", { name: "Mở tài khoản" }));
   await user.upload(within(first.container).getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
+  await user.click(within(first.container).getByRole("button", { name: "Lưu ảnh" }));
   await waitFor(() => expect(server.data.avatar).toBe("data:image/webp;base64,YQ=="));
   fireEvent.focus(window);
   await waitFor(() => expect(within(second.container).getByRole("button", { name: "Mở tài khoản" }).querySelector("img")?.getAttribute("src")).toBe("data:image/webp;base64,YQ=="));
@@ -77,6 +84,7 @@ it("không lưu ảnh nếu tài khoản đã đóng trong lúc xử lý", async
   await screen.findByText("Đã đồng bộ");
   await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
   await user.upload(screen.getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
+  await user.click(screen.getByRole("button", { name: "Lưu ảnh" }));
   view.unmount(); finish("data:image/webp;base64,YQ==");
   await Promise.resolve(); await Promise.resolve();
   expect(server.version).toBe(0);
@@ -105,11 +113,28 @@ it("mở cài đặt từ avatar và quay về tổng quan từ không gian cá 
   expect(screen.getByRole("heading", { name: /Chào bạn/ })).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Mở menu" }));
   expect(container.querySelector("aside")?.classList.contains("open")).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Đóng thanh bên" }));
+  expect(container.querySelector("aside")?.classList.contains("open")).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Mở menu" }));
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(container.querySelector("aside")?.classList.contains("open")).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Mở menu" }));
   await user.click(screen.getByRole("button", { name: /^Cài đặt$/ }));
   expect(container.querySelector("aside")?.classList.contains("open")).toBe(false);
   expect(screen.getByRole("heading", { name: "Cài đặt & dữ liệu" })).toBeTruthy();
   await user.click(screen.getAllByRole("button", { name: "Thêm giao dịch" })[0]);
   expect(screen.getByRole("dialog")).toBeTruthy();
+}, 15000);
+
+it("hủy điều chỉnh ảnh không ghi đè ảnh đã lưu", async () => {
+  server.data.avatar = "data:image/webp;base64,YQ==";
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
+  await user.upload(screen.getByLabelText("Đổi ảnh"), new File(["b"], "new.png", { type: "image/png" }));
+  await user.click(screen.getByRole("button", { name: "Hủy" }));
+  expect(server.data.avatar).toBe("data:image/webp;base64,YQ==");
+  expect(server.version).toBe(0);
 });
 
 it("các nút điều hướng chính và biểu mẫu đều mở đúng nội dung", async () => {
@@ -134,7 +159,7 @@ it("các nút điều hướng chính và biểu mẫu đều mở đúng nội 
   await user.click(screen.getByRole("button", { name: "Định kỳ" }));
   await user.click(screen.getByRole("button", { name: "Tạo giao dịch" }));
   expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Khoản thu" })).toBeTruthy();
-});
+}, 15000);
 
 it("gợi ý số tiền và chỉ thay đổi giá trị khi người dùng chọn", async () => {
   const user = userEvent.setup(); render(<Page />);

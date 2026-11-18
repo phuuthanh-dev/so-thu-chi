@@ -1,10 +1,11 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { prepareAvatar } from "@/lib/avatar";
+import { prepareAvatar, validateAvatarFile, type AvatarCrop } from "@/lib/avatar";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { PetalFall } from "./petals";
+import { AvatarEditor } from "./avatar-editor";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { AuthGate } from "./auth";
 import {
@@ -143,7 +144,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     [tab, setTab] = useState("overview"),
     [month, setMonth] = useState(""),
     [modal, setModal] = useState<
-      "entry" | "wallet" | "budget" | "category" | "rule" | null
+      "entry" | "wallet" | "budget" | "category" | "rule" | "avatar" | null
     >(null),
     [kind, setKind] = useState<Kind>("expense"),
     [amount, setAmount] = useState(""),
@@ -164,7 +165,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     [newCategory, setNewCategory] = useState(""),
     [ruleId, setRuleId] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState("");
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const mainRef = useRef<HTMLElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarBackdropRef = useRef<HTMLButtonElement>(null);
   const mountedRef = useRef(false);
   useEffect(() => {
     mountedRef.current = true;
@@ -178,6 +182,29 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     }, mainRef);
     return () => media.revert();
   }, { scope: mainRef, dependencies: [tab, !!data, motionEnabled], revertOnUpdate: true });
+  const { contextSafe: sidebarContextSafe } = useGSAP(() => {
+    if (!menu || !motionEnabled || !sidebarRef.current || typeof window.matchMedia !== "function") return;
+    const media = gsap.matchMedia();
+    media.add("(max-width: 760px) and (prefers-reduced-motion: no-preference)", () => {
+      gsap.fromTo(sidebarRef.current, { xPercent: -100 }, { xPercent: 0, duration: 0.28, ease: "power2.out", clearProps: "transform" });
+      gsap.fromTo(sidebarBackdropRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.25 });
+    });
+    return () => media.revert();
+  }, { dependencies: [menu, motionEnabled], revertOnUpdate: true });
+  const closeSidebar = () => sidebarContextSafe(() => {
+    if (!motionEnabled || typeof window.matchMedia !== "function" || !window.matchMedia("(max-width: 760px) and (prefers-reduced-motion: no-preference)").matches || !sidebarRef.current || !sidebarBackdropRef.current) {
+      setMenu(false);
+      return;
+    }
+    gsap.to(sidebarRef.current, { xPercent: -100, duration: 0.24, ease: "power2.in", overwrite: true });
+    gsap.to(sidebarBackdropRef.current, { autoAlpha: 0, duration: 0.24, overwrite: true, onComplete: () => setMenu(false) });
+  })();
+  useEffect(() => {
+    if (!menu) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !modal) setMenu(false); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [menu, modal]);
   const version = useRef<number | null>(null),
     busyRef = useRef(false),
     dirtyRef = useRef(false),
@@ -442,18 +469,31 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     );
   const avatar = data.avatar && /^data:image\/(webp|jpeg);base64,/.test(data.avatar) ? data.avatar : null;
   const renderAvatar = () => avatar ? <Image src={avatar} alt="" width={40} height={40} unoptimized /> : "M";
-  const changeAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const closeModal = () => { setModal(null); setAvatarFile(null); setAvatarError(""); };
+  const changeAvatar = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     if (!file || busyRef.current) return;
     setAvatarError("");
+    try {
+      validateAvatarFile(file);
+      setAvatarFile(file);
+      setModal("avatar");
+    } catch (error) {
+      setAvatarError(error instanceof Error ? error.message : "Không thể mở ảnh, vui lòng thử lại.");
+    }
+  };
+  const saveAvatar = async (crop: AvatarCrop) => {
+    if (!avatarFile || busyRef.current) return;
+    setAvatarError("");
     busyRef.current = true;
     setBusy(true);
     try {
-      const image = await prepareAvatar(file);
+      const image = await prepareAvatar(avatarFile, crop);
       if (!mountedRef.current) return;
       busyRef.current = false;
-      if (!save({ ...data, avatar: image })) setBusy(false);
+      if (save({ ...data, avatar: image })) closeModal();
+      else setBusy(false);
     } catch (error) {
       if (!mountedRef.current) return;
       busyRef.current = false;
@@ -523,14 +563,14 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     </div>
   );
   return (
-    <div className="app-shell">
+    <div className={`app-shell${motionEnabled ? "" : " motion-off"}`}>
       <PetalFall enabled={motionEnabled} />
       {busy && (
         <div className="saving-overlay" role="status">
           Đang lưu...
         </div>
       )}
-      <aside className={`sidebar ${menu ? "open" : ""}`}>
+      <aside ref={sidebarRef} id="sidebar-navigation" className={`sidebar ${menu ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">
             <Image src="/logo.png" alt="" width={38} height={38} />
@@ -543,7 +583,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
           </div>
           <button
             className="mobile-close icon-btn"
-            onClick={() => setMenu(false)}
+            onClick={closeSidebar}
             aria-label="Đóng menu"
           >
             <X size={19} />
@@ -596,12 +636,15 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
           </button>
         </div>
       </aside>
+      {menu && <button ref={sidebarBackdropRef} type="button" className="sidebar-backdrop" aria-label="Đóng thanh bên" onClick={closeSidebar} />}
       <main className="main" ref={mainRef}>
         <header className="topbar">
           <button
             className="icon-btn hamburger"
             onClick={() => setMenu(true)}
             aria-label="Mở menu"
+            aria-expanded={menu}
+            aria-controls="sidebar-navigation"
           >
             <Menu size={20} />
           </button>
@@ -1192,7 +1235,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                 <div className="avatar-details">
                   <strong>Ảnh đại diện</strong>
                   <p>JPG, PNG hoặc WebP, tối đa 5 MB. Ảnh được cắt vuông và đồng bộ theo tài khoản.</p>
-                  {avatarError && <p className="avatar-error" role="alert">{avatarError}</p>}
+                  {avatarError && modal !== "avatar" && <p className="avatar-error" role="alert">{avatarError}</p>}
                 </div>
                 <div className="avatar-actions">
                   <label className="outline-btn avatar-upload">{avatar ? "Đổi ảnh" : "Chọn ảnh"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={changeAvatar} /></label>
@@ -1320,7 +1363,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
         <div
           className="modal-backdrop"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setModal(null);
+            if (e.target === e.currentTarget) closeModal();
           }}
         >
           <div
@@ -1333,7 +1376,9 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               <div>
                 <div className="card-kicker">SỔ THU CHI</div>
                 <h2>
-                  {modal === "rule"
+                  {modal === "avatar"
+                    ? "Điều chỉnh ảnh đại diện"
+                    : modal === "rule"
                     ? "Sửa giao dịch định kỳ"
                     : modal === "entry"
                       ? editId
@@ -1348,12 +1393,13 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               </div>
               <button
                 className="icon-btn"
-                onClick={() => setModal(null)}
+                onClick={closeModal}
                 aria-label="Đóng"
               >
                 <X size={21} />
               </button>
             </div>
+            {modal === "avatar" && avatarFile && <AvatarEditor file={avatarFile} onSave={(crop) => void saveAvatar(crop)} onCancel={closeModal} error={avatarError} busy={busy} motionEnabled={motionEnabled} />}
             {(modal === "entry" || modal === "rule") && (
               <form onSubmit={submitEntry}>
                 {modal === "rule" && (
