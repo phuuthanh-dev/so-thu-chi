@@ -170,10 +170,10 @@ it("gợi ý số tiền và chỉ thay đổi giá trị khi người dùng ch�
   await user.type(amount, "40");
   expect(amount.value).toBe("40");
   const suggestions = within(dialog).getByRole("group", { name: "Gợi ý số tiền" });
-  expect(within(suggestions).getByRole("button", { name: "40.000 ₫" })).toBeTruthy();
-  expect(within(suggestions).getByRole("button", { name: "400.000 ₫" })).toBeTruthy();
-  expect(within(suggestions).getByRole("button", { name: "4.000.000 ₫" })).toBeTruthy();
-  await user.click(within(suggestions).getByRole("button", { name: "400.000 ₫" }));
+  expect(within(suggestions).getByRole("button", { name: /^40\.000\s₫$/ })).toBeTruthy();
+  expect(within(suggestions).getByRole("button", { name: /^400\.000\s₫$/ })).toBeTruthy();
+  expect(within(suggestions).getByRole("button", { name: /^4\.000\.000\s₫$/ })).toBeTruthy();
+  await user.click(within(suggestions).getByRole("button", { name: /^400\.000\s₫$/ }));
   expect(amount.value).toBe("400000");
   expect(within(dialog).queryByRole("group", { name: "Gợi ý số tiền" })).toBeNull();
   await user.click(within(dialog).getByRole("button", { name: /Lưu giao dịch/ }));

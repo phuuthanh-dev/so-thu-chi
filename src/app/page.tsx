@@ -77,7 +77,7 @@ const dateISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
-const money = (n: number) => new Intl.NumberFormat("vi-VN").format(n) + " ₫";
+const money = (n: number) => new Intl.NumberFormat("vi-VN").format(n) + "\u00a0₫";
 const uid = () =>
   globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 const nextMonth = (s: string) => {
@@ -774,7 +774,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               <p>
                 {tab === "overview"
                   ? "Một chút quan tâm mỗi ngày, tài chính thêm thảnh thơi."
-                  : "Mọi điều về tài chính, gói gọn ở đây."}
+                  : "Theo dõi tài chính của bạn."}
               </p>
             </div>
             <button className="primary-btn" aria-label="Thêm giao dịch" onClick={() => openEntry()}>
@@ -811,7 +811,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                   </div>
                   <strong>{money(income)}</strong>
                   <small>
-                    <span className="positive">↗ Thu nhập</span> trong tháng này
+                    <span className="positive">↗ Thu nhập</span> tháng này
                   </small>
                 </div>
                 <div className="stat-card">
@@ -823,7 +823,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                   </div>
                   <strong>{money(expense)}</strong>
                   <small>
-                    <span className="negative">↘ Chi tiêu</span> trong tháng này
+                    <span className="negative">↘ Chi tiêu</span> tháng này
                   </small>
                 </div>
                 <div className="stat-card dark">
@@ -1169,18 +1169,19 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               </div>
               {data.rules.length ? (
                 data.rules.map((r) => (
-                  <div className="wallet-row large" key={r.id}>
+                  <div className="wallet-row large recurring-row" key={r.id}>
                     <span className="wallet-icon">
                       <Repeat2 size={19} />
                     </span>
-                    <div>
+                    <div className="recurring-info">
                       <strong>{r.note || r.category}</strong>
                       <small>
                         Lần tiếp theo: {r.next} ·{" "}
                         {r.active ? "Đang hoạt động" : "Đã tạm dừng"}
                       </small>
                     </div>
-                    <b>{money(r.amount)}</b>
+                    <b className="recurring-amount">{money(r.amount)}</b>
+                    <div className="recurring-actions">
                     <button
                       className="text-link"
                       onClick={() => {
@@ -1210,6 +1211,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                     >
                       {r.active ? "Tạm dừng" : "Tiếp tục"}
                     </button>
+                    </div>
                   </div>
                 ))
               ) : (

@@ -44,3 +44,22 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
 .avatar-button{padding:0}
 .sidebar-backdrop{display:none}.avatar-editor .avatar-crop-preview{position:relative;display:grid;place-items:center;width:min(100%,220px);aspect-ratio:1;overflow:hidden;border-radius:50%;outline:3px solid #edcfda;background:#f9edf1;margin:14px auto;touch-action:none;cursor:grab}.avatar-crop-preview:active{cursor:grabbing}.avatar-crop-preview img{position:absolute;max-width:none;object-fit:fill;user-select:none;pointer-events:none}.avatar-crop-preview span{color:#765b67;font-size:13px}.avatar-editor .crop-control{display:block;margin:8px 0;color:#704f5d;font-size:13px}.crop-control output{float:right;font-weight:700}.avatar-editor input[type=range]{display:block;width:100%;height:32px;padding:0;margin:2px 0 0;border:0;background:transparent;accent-color:#984c68}.avatar-editor input[type=range]:disabled{opacity:.4}.avatar-editor .avatar-error{color:#a23f50;font-size:13px}.crop-actions{display:flex;gap:10px;margin-top:14px}.crop-actions button{flex:1;min-height:44px}.crop-actions button:disabled{opacity:.55;cursor:not-allowed}.motion-off .sidebar{transition:none}
 @media(max-width:760px){.sidebar{z-index:6}.sidebar.open{transition:none}.sidebar-backdrop{display:block;position:fixed;inset:0;z-index:5;padding:0;border:0;background:#38273080;cursor:pointer}.avatar-editor .avatar-crop-preview{width:min(100%,190px)}}
+.outline-btn{white-space:nowrap}.card-heading>div{min-width:0}.stat-card small{display:block;text-wrap:balance}.wallet-row strong,.wallet-row small{overflow-wrap:anywhere;text-wrap:pretty}.recurring-info{min-width:0}.wallet-row>.recurring-actions{display:flex;flex:0 0 auto;gap:14px}.recurring-amount{white-space:nowrap}
+@media(max-width:480px){
+  .budget-detail .budget-number{margin-top:28px}
+  .stat-card>strong{font-size:clamp(13px,4.2vw,17px);letter-spacing:-.4px}
+  .transaction-row{display:grid;grid-template-columns:36px minmax(0,1fr) 40px;gap:5px 9px;align-items:center}
+  .transaction-row>.category-icon{grid-column:1;grid-row:1;align-self:start;width:36px;height:36px}
+  .transaction-row>.transaction-name{grid-column:2;grid-row:1;min-width:0}
+  .transaction-row>.transaction-name strong,.transaction-row>.transaction-name small{text-wrap:pretty;overflow-wrap:anywhere}
+  .transaction-row>strong{grid-column:2;grid-row:2;justify-self:start}
+  .transaction-row>.delete-btn{grid-column:3;grid-row:1 / 3;min-width:40px;min-height:44px}
+  .recurring-row{display:grid;grid-template-columns:38px minmax(0,1fr);gap:6px 10px}
+  .recurring-row>.wallet-icon{grid-column:1;grid-row:1;align-self:start}
+  .recurring-row>.recurring-info{grid-column:2;grid-row:1;min-width:0}
+  .recurring-row>.recurring-info strong,.recurring-row>.recurring-info small{text-wrap:pretty;overflow-wrap:anywhere}
+  .recurring-row>.recurring-amount{grid-column:2;grid-row:2;justify-self:start}
+  .wallet-row.recurring-row>.recurring-actions{grid-column:1 / -1;grid-row:3;display:flex;gap:8px;width:100%}
+  .recurring-actions .text-link{flex:1;justify-content:center;min-height:44px;border:1px solid #ecd3dc;border-radius:8px;background:#fffafb}
+}
+@media(max-width:360px){.stat-card .stat-icon{display:none}.stat-top{letter-spacing:.4px}.card-heading{flex-wrap:wrap}.card-heading>div{flex:1 1 150px}}
