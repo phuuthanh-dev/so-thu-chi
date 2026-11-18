@@ -1,6 +1,10 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { prepareAvatar } from "@/lib/avatar";
+import { gsap } from "gsap";
+import { useGSAP } from "@gsap/react";
+import { PetalFall } from "./petals";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { AuthGate } from "./auth";
 import {
@@ -66,6 +70,7 @@ type Data = {
   budgets: Record<string, number>;
   rules: Rule[];
   categories: Record<Kind, string[]>;
+  avatar?: string | null;
 };
 const dateISO = () => {
   const d = new Date();
@@ -111,15 +116,29 @@ const nav = [
   { id: "recurring", label: "Định kỳ", Icon: Repeat2 },
 ];
 
+gsap.registerPlugin(useGSAP);
+
 export default function Page() {
+  const [motionEnabled, setMotionEnabled] = useState(false);
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      try { setMotionEnabled(localStorage.getItem("nha-minh-motion") !== "off"); }
+      catch { setMotionEnabled(true); }
+    });
+  }, []);
+  const toggleMotion = () => {
+    const next = !motionEnabled;
+    try { localStorage.setItem("nha-minh-motion", next ? "on" : "off"); } catch { /* Setting still applies for this session. */ }
+    setMotionEnabled(next);
+  };
   return (
     <AuthGate>
-      {(client, user) => <Ledger key={user.id} client={client} user={user} />}
+      {(client, user) => <Ledger key={user.id} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} />}
     </AuthGate>
   );
 }
 
-function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
+function Ledger({ client, user, motionEnabled, toggleMotion }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void }) {
   const [data, setData] = useState<Data | null>(null),
     [tab, setTab] = useState("overview"),
     [month, setMonth] = useState(""),
@@ -144,6 +163,21 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
     [editId, setEditId] = useState<string | null>(null),
     [newCategory, setNewCategory] = useState(""),
     [ruleId, setRuleId] = useState<string | null>(null);
+  const [avatarError, setAvatarError] = useState("");
+  const mainRef = useRef<HTMLElement>(null);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  useGSAP(() => {
+    if (!data || !motionEnabled || typeof window.matchMedia !== "function") return;
+    const media = gsap.matchMedia();
+    media.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".page-heading", { y: 8, autoAlpha: 0, duration: 0.35, ease: "power2.out" });
+    }, mainRef);
+    return () => media.revert();
+  }, { scope: mainRef, dependencies: [tab, !!data, motionEnabled], revertOnUpdate: true });
   const version = useRef<number | null>(null),
     busyRef = useRef(false),
     dirtyRef = useRef(false),
@@ -406,6 +440,27 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
         )}
       </main>
     );
+  const avatar = data.avatar && /^data:image\/(webp|jpeg);base64,/.test(data.avatar) ? data.avatar : null;
+  const renderAvatar = () => avatar ? <Image src={avatar} alt="" width={40} height={40} unoptimized /> : "M";
+  const changeAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || busyRef.current) return;
+    setAvatarError("");
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const image = await prepareAvatar(file);
+      if (!mountedRef.current) return;
+      busyRef.current = false;
+      if (!save({ ...data, avatar: image })) setBusy(false);
+    } catch (error) {
+      if (!mountedRef.current) return;
+      busyRef.current = false;
+      setBusy(false);
+      setAvatarError(error instanceof Error ? error.message : "Không thể xử lý ảnh, vui lòng thử lại.");
+    }
+  };
   const list = entries.filter(
     (e) =>
       (filter === "all" || e.type === filter) &&
@@ -469,6 +524,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
   );
   return (
     <div className="app-shell">
+      <PetalFall enabled={motionEnabled} />
       {busy && (
         <div className="saving-overlay" role="status">
           Đang lưu...
@@ -531,7 +587,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
             <Settings size={18} /> Cài đặt
           </button>
           <button type="button" className="profile" aria-label="Cài đặt tài khoản" onClick={() => { setTab("settings"); setMenu(false); }}>
-            <div className="avatar">M</div>
+            <div className="avatar">{renderAvatar()}</div>
             <div>
               <strong>{user.phone || "Tài khoản"}</strong>
               <small>Chủ sở hữu</small>
@@ -540,7 +596,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
           </button>
         </div>
       </aside>
-      <main className="main">
+      <main className="main" ref={mainRef}>
         <header className="topbar">
           <button
             className="icon-btn hamburger"
@@ -571,7 +627,7 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
             >
               <CircleHelp size={19} />
             </button>
-            <button type="button" className="avatar small avatar-button" aria-label="Mở tài khoản" onClick={() => { setTab("settings"); setMenu(false); }}>M</button>
+            <button type="button" className="avatar small avatar-button" aria-label="Mở tài khoản" onClick={() => { setTab("settings"); setMenu(false); }}>{renderAvatar()}</button>
           </div>
         </header>
         <div className="content">
@@ -1130,6 +1186,27 @@ function Ledger({ client, user }: { client: SupabaseClient; user: User }) {
                   <strong>Tài khoản của bạn</strong>
                   <p>{user.phone || "Sổ cá nhân"} · Chủ sở hữu</p>
                 </div>
+              </div>
+              <div className="setting-row avatar-settings">
+                <div className="avatar-preview avatar">{renderAvatar()}</div>
+                <div className="avatar-details">
+                  <strong>Ảnh đại diện</strong>
+                  <p>JPG, PNG hoặc WebP, tối đa 5 MB. Ảnh được cắt vuông và đồng bộ theo tài khoản.</p>
+                  {avatarError && <p className="avatar-error" role="alert">{avatarError}</p>}
+                </div>
+                <div className="avatar-actions">
+                  <label className="outline-btn avatar-upload">{avatar ? "Đổi ảnh" : "Chọn ảnh"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={changeAvatar} /></label>
+                  {avatar && <button type="button" className="outline-btn" onClick={() => save({ ...data, avatar: null })}>Xóa ảnh</button>}
+                </div>
+              </div>
+              <div className="setting-row motion-settings">
+                <div>
+                  <strong>Hiệu ứng hoa đào</strong>
+                  <p>Hoa rơi nhẹ và chuyển động giao diện. Có thể tắt trên thiết bị này; tự tắt nếu thiết bị bật giảm chuyển động.</p>
+                </div>
+                <button type="button" className="outline-btn" aria-pressed={motionEnabled} onClick={toggleMotion}>
+                  {motionEnabled ? "Tắt hiệu ứng" : "Bật hiệu ứng"}
+                </button>
               </div>
               <div className="soft-note">
                 Dữ liệu được lưu theo tài khoản của bạn. Số điện thoại chưa được

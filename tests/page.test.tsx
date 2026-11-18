@@ -2,8 +2,10 @@ import React from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { prepareAvatar } from "../src/lib/avatar";
 
 const server = vi.hoisted(() => ({ data: {} as Record<string, unknown>, version: 0, offline: false, saveFails: false }));
+vi.mock("../src/lib/avatar", () => ({ prepareAvatar: vi.fn() }));
 vi.mock("../src/app/auth", () => ({
   AuthGate: ({ children }: { children: (client: unknown, user: unknown) => React.ReactNode }) => children({
     rpc: async (name: string, args?: { expected_version: number; new_data: Record<string, unknown> }) => {
@@ -23,10 +25,71 @@ vi.mock("../src/app/auth", () => ({
 import Page from "../src/app/page";
 
 beforeEach(() => {
+  vi.mocked(prepareAvatar).mockReset();
   localStorage.clear(); server.version = 0; server.offline = false; server.saveFails = false;
   server.data = { entries: [], wallets: [{ id: "cash", name: "Tiền mặt", balance: 0 }], budgets: {}, rules: [], categories: { expense: ["Ăn uống", "Khác"], income: ["Lương"] } };
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+it("lưu, thay và xóa ảnh đại diện theo tài khoản mà giữ giao dịch", async () => {
+  server.data.entries = [{ id: "old", type: "expense", amount: 100, category: "Ăn uống", note: "", wallet: "cash", date: "2026-11-01" }];
+  vi.mocked(prepareAvatar).mockResolvedValueOnce("data:image/webp;base64,YQ==").mockResolvedValueOnce("data:image/webp;base64,Yg==");
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
+  await user.upload(screen.getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
+  await waitFor(() => expect(server.data.avatar).toBe("data:image/webp;base64,YQ=="));
+  await user.upload(screen.getByLabelText("Đổi ảnh"), new File(["b"], "avatar2.png", { type: "image/png" }));
+  await waitFor(() => expect(server.data.avatar).toBe("data:image/webp;base64,Yg=="));
+  expect((server.data.entries as { amount: number }[])[0].amount).toBe(100);
+  await user.click(screen.getByRole("button", { name: "Xóa ảnh" }));
+  await waitFor(() => expect(server.data.avatar).toBeNull());
+  expect(screen.getByLabelText("Chọn ảnh")).toBeTruthy();
+});
+
+it("hiển thị lỗi xử lý ảnh và không thay đổi dữ liệu", async () => {
+  vi.mocked(prepareAvatar).mockRejectedValueOnce(new Error("Ảnh cần nhỏ hơn 5 MB."));
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
+  await user.upload(screen.getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Ảnh cần nhỏ hơn 5 MB.");
+  expect(server.version).toBe(0);
+});
+
+it("ảnh đại diện đồng bộ sang một phiên khác khi làm mới", async () => {
+  vi.mocked(prepareAvatar).mockResolvedValueOnce("data:image/webp;base64,YQ==");
+  const user = userEvent.setup();
+  const first = render(<Page />); const second = render(<Page />);
+  await within(first.container).findByText("Đã đồng bộ");
+  await within(second.container).findByText("Đã đồng bộ");
+  await user.click(within(first.container).getByRole("button", { name: "Mở tài khoản" }));
+  await user.upload(within(first.container).getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
+  await waitFor(() => expect(server.data.avatar).toBe("data:image/webp;base64,YQ=="));
+  fireEvent.focus(window);
+  await waitFor(() => expect(within(second.container).getByRole("button", { name: "Mở tài khoản" }).querySelector("img")?.getAttribute("src")).toBe("data:image/webp;base64,YQ=="));
+});
+
+it("không lưu ảnh nếu tài khoản đã đóng trong lúc xử lý", async () => {
+  let finish!: (image: string) => void;
+  vi.mocked(prepareAvatar).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  const user = userEvent.setup(); const view = render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
+  await user.upload(screen.getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
+  view.unmount(); finish("data:image/webp;base64,YQ==");
+  await Promise.resolve(); await Promise.resolve();
+  expect(server.version).toBe(0);
+});
+
+it("cho phép tắt hiệu ứng hoa trên thiết bị", async () => {
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", { name: "Mở tài khoản" }));
+  await user.click(screen.getByRole("button", { name: "Tắt hiệu ứng" }));
+  expect(localStorage.getItem("nha-minh-motion")).toBe("off");
+  expect(screen.getByRole("button", { name: "Bật hiệu ứng" }).getAttribute("aria-pressed")).toBe("false");
+});
 
 it("mở cài đặt từ avatar và quay về tổng quan từ không gian cá nhân", async () => {
   const user = userEvent.setup(); const { container } = render(<Page />);
