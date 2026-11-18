@@ -7,6 +7,7 @@ import { useGSAP } from "@gsap/react";
 import { PetalFall } from "./petals";
 import { AvatarEditor } from "./avatar-editor";
 import { Report } from "./report";
+import { FamilyManager, captureFamilyInvitation, type Family } from "./family";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { AuthGate } from "./auth";
 import {
@@ -41,6 +42,7 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
+  Users,
   X,
 } from "lucide-react";
 
@@ -54,8 +56,9 @@ type Entry = {
   note: string;
   wallet: string;
   origin?: string;
+  createdBy?: string;
 };
-type WalletItem = { id: string; name: string; balance: number; archived?: boolean };
+type WalletItem = { id: string; name: string; balance: number; archived?: boolean; ownerId?: string; visibility?: "private" | "shared"; note?: string };
 type Rule = {
   id: string;
   type: Kind;
@@ -117,6 +120,7 @@ const nav = [
   { id: "reports", label: "Báo cáo", Icon: TrendingUp },
   { id: "budget", label: "Ngân sách", Icon: Target },
   { id: "recurring", label: "Định kỳ", Icon: Repeat2 },
+  { id: "family", label: "Gia đình", Icon: Users },
 ];
 
 gsap.registerPlugin(useGSAP);
@@ -124,6 +128,7 @@ gsap.registerPlugin(useGSAP);
 export default function Page() {
   const [motionEnabled, setMotionEnabled] = useState(false);
   useEffect(() => {
+    captureFamilyInvitation();
     Promise.resolve().then(() => {
       try { setMotionEnabled(localStorage.getItem("nha-minh-motion") !== "off"); }
       catch { setMotionEnabled(true); }
@@ -136,12 +141,19 @@ export default function Page() {
   };
   return (
     <AuthGate>
-      {(client, user) => <Ledger key={user.id} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} />}
+      {(client, user) => <Workspaces key={user.id} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} />}
     </AuthGate>
   );
 }
 
-function Ledger({ client, user, motionEnabled, toggleMotion }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void }) {
+function Workspaces({ client, user, motionEnabled, toggleMotion }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void }) {
+  const [workspace, setWorkspace] = useState<Family | null>(null);
+  const [family, setFamily] = useState<Family | null>(null);
+  return <Ledger key={workspace?.id || "personal"} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} workspace={workspace} family={family} setFamily={setFamily} setWorkspace={setWorkspace} />;
+}
+
+function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, setFamily, setWorkspace }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void; workspace: Family | null; family: Family | null; setFamily: (family: Family | null) => void; setWorkspace: (family: Family | null) => void }) {
+  const draftOwner = workspace ? `${user.id}:family:${workspace.id}` : user.id;
   const [data, setData] = useState<Data | null>(null),
     [tab, setTab] = useState("overview"),
     [month, setMonth] = useState(""),
@@ -159,6 +171,9 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     [walletName, setWalletName] = useState(""),
     [walletBalance, setWalletBalance] = useState("0"),
     [walletEditId, setWalletEditId] = useState<string | null>(null),
+    [walletVisibility, setWalletVisibility] = useState<"private" | "shared">("private"),
+    [walletOwner, setWalletOwner] = useState(user.id),
+    [walletNote, setWalletNote] = useState(""),
     [budgetInput, setBudgetInput] = useState(""),
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("all"),
@@ -229,18 +244,18 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     [drafts, setDrafts] = useState<Draft<Data>[]>([]);
   const updateDrafts = useCallback(() => {
     try {
-      setDrafts(listDrafts<Data>(localStorage, user.id));
+      setDrafts(listDrafts<Data>(localStorage, draftOwner));
     } catch {
       setSyncError("Không đọc được bản nháp trên thiết bị này.");
     }
-  }, [user.id]);
+  }, [draftOwner]);
   const refresh = useCallback(
     async (force = false) => {
       if (!force && (busyRef.current || dirtyRef.current || modalRef.current))
         return;
       const previousVersion = version.current;
       try {
-        const { data: rows, error } = await client.rpc("open_ledger");
+        const { data: rows, error } = await client.rpc(workspace ? "family_open_ledger" : "open_ledger");
         if (error || !rows?.[0]) throw error || new Error("No ledger");
         if (
           !force &&
@@ -258,7 +273,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
           activeDraftId.current = null;
           setSyncError("");
         }
-        const status = await client.rpc("recurring_status");
+        const status = await client.rpc(workspace ? "family_recurring_status" : "recurring_status");
         if (status.error) {
           setRecurringError(
             "Không kiểm tra được trạng thái giao dịch định kỳ. Hãy thử lại khi có kết nối.",
@@ -270,19 +285,24 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               : "",
           );
         }
-      } catch {
-        setLoadError(
-          "Không tải được dữ liệu. Hãy kiểm tra kết nối và cấu hình cơ sở dữ liệu.",
-        );
+      } catch (error) {
+        if (workspace && (error as { code?: string })?.code === "42501") {
+          version.current = null;
+          setData(null);
+          setLoadError("Bạn không còn quyền truy cập sổ gia đình. Hãy quay về sổ cá nhân.");
+        } else {
+          setLoadError("Không tải được dữ liệu. Hãy kiểm tra kết nối và cấu hình cơ sở dữ liệu.");
+        }
       }
     },
-    [client],
+    [client, workspace],
   );
   useEffect(() => {
     Promise.resolve().then(() => {
       const today = dateISO();
       setMonth(today.slice(0, 7));
       setDate(today);
+      if (sessionStorage.getItem("nha-minh-family-invitation")) setTab("family");
       updateDrafts();
       void refresh(true);
     });
@@ -298,7 +318,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     if (busyRef.current || version.current === null) return false;
     const draftId = activeDraftId.current || uid();
     try {
-      writeDraft(localStorage, user.id, draftId, version.current, d);
+      writeDraft(localStorage, draftOwner, draftId, version.current, d);
       activeDraftId.current = draftId;
       updateDrafts();
     } catch {
@@ -314,7 +334,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     setSyncError("");
     void (async () => {
       try {
-        const { data: savedRows, error } = await client.rpc("save_ledger", {
+        const { data: savedRows, error } = await client.rpc(workspace ? "family_save_ledger" : "save_ledger", {
           expected_version: version.current,
           new_data: d,
         });
@@ -322,7 +342,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
         if (error) throw error;
         if (!rows?.[0]) {
           // The previous write may have succeeded even though its response was lost.
-          const latest = await client.rpc("open_ledger");
+          const latest = await client.rpc(workspace ? "family_open_ledger" : "open_ledger");
           if (
             latest.error ||
             !latest.data?.[0] ||
@@ -342,8 +362,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
         try {
           removeDraft(
             localStorage,
-            user.id,
-            `nha-minh-draft-v1:${user.id}:${draftId}`,
+            draftOwner,
+            `nha-minh-draft-v1:${draftOwner}:${draftId}`,
           );
           updateDrafts();
         } catch {
@@ -471,9 +491,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     return (
       <main className="loading">
         {loadError || "Đang chuẩn bị sổ thu chi..."}
-        {loadError && (
+        {loadError && (<>
           <button onClick={() => void refresh(true)}>Thử lại</button>
-        )}
+          {workspace && <button onClick={() => setWorkspace(null)}>Về sổ cá nhân</button>}
+        </>)}
       </main>
     );
   const avatar = data.avatar && /^data:image\/(webp|jpeg);base64,/.test(data.avatar) ? data.avatar : null;
@@ -492,6 +513,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
     const previouslyUsed = data.entries.some((item) => item.type === kind && item.category === name)
       || data.rules.some((item) => item.type === kind && item.category === name);
     if (previouslyUsed && !confirm(`Tên “${name}” đã được dùng trong giao dịch hoặc định kỳ cũ. Đổi tên sẽ gộp các khoản này vào cùng danh mục trong báo cáo. Bạn có muốn tiếp tục?`)) return;
+    if (workspace && (data.entries.some(item => item.type === kind && item.category === editingCategory && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared")) || data.rules.some(item => item.type === kind && item.category === editingCategory && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared"))) && !confirm("Đổi tên cũng cập nhật các giao dịch và lịch định kỳ cùng danh mục trong ví chia sẻ mà thành viên khác có thể xem. Tiếp tục?")) return;
     if (save({
       ...data,
       categories: { ...data.categories, [kind]: data.categories[kind].map((item) => item === editingCategory ? name : item) },
@@ -558,7 +580,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               <small>
                 {e.category} ·{" "}
                 {data.wallets.find((w) => w.id === e.wallet)?.name}
-                {e.origin ? " · Định kỳ" : ""}
+                {e.origin ? " · Định kỳ" : ""}{workspace && e.createdBy ? ` · ${e.createdBy === user.id ? "Bạn tạo" : `${family?.members.find(m => m.userId === e.createdBy)?.phone || "Thành viên"} tạo`}` : ""}
               </small>
             </button>
             <span className="transaction-date">
@@ -621,8 +643,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
         <button type="button" className="workspace" aria-label="Mở tổng quan sổ cá nhân" onClick={() => { setTab("overview"); setMenu(false); }}>
           <div className="workspace-icon">N</div>
           <div>
-            <strong>Không gian của tôi</strong>
-            <small>Sổ cá nhân</small>
+            <strong>{workspace ? workspace.name : "Không gian của tôi"}</strong>
+            <small>{workspace ? "Sổ gia đình" : "Sổ cá nhân"}</small>
           </div>
         </button>
         <p className="side-label">KHÔNG GIAN CỦA BẠN</p>
@@ -659,7 +681,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
             <div className="avatar">{renderAvatar()}</div>
             <div>
               <strong>{user.phone || "Tài khoản"}</strong>
-              <small>Chủ sở hữu</small>
+              <small>{workspace ? "Sổ gia đình" : "Chủ sở hữu"}</small>
             </div>
             <MoreHorizontal size={18} />
           </button>
@@ -678,7 +700,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
             <Menu size={20} />
           </button>
           <div className="breadcrumb">
-            <button type="button" className="breadcrumb-home" onClick={() => setTab("overview")}>Không gian của tôi</button> <span>/</span>{" "}
+            <button type="button" className="breadcrumb-home" onClick={() => setTab("overview")}>{workspace ? workspace.name : "Không gian của tôi"}</button> <span>/</span>{" "}
             <strong>{nav.find((x) => x.id === tab)?.label || "Cài đặt"}</strong>
           </div>
           <div className="top-actions">
@@ -775,7 +797,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                       )
                         return;
                       try {
-                        removeDraft(localStorage, user.id, draft.key);
+                        removeDraft(localStorage, draftOwner, draft.key);
                         updateDrafts();
                         if (activeDraftId.current === draft.id)
                           void refresh(true);
@@ -812,7 +834,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               <Plus size={18} aria-hidden="true" /> <span className="add-transaction-label">Thêm giao dịch</span>
             </button>
           </div>
-          {!["settings", "wallets", "recurring"].includes(tab) && (
+          {!["settings", "wallets", "recurring", "family"].includes(tab) && (
             <div className="period-row">
               <div className="period">
                 <CalendarDays size={16} />
@@ -1018,6 +1040,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
               </div>
             </>
           )}
+          {tab === "family" && <FamilyManager client={client} userId={user.id} family={family} onFamily={setFamily} personal={!workspace} wallets={data.wallets} personalVersion={() => version.current} disabled={busy || !!syncError} refresh={() => refresh(true)} switchWorkspace={(next) => { if (busyRef.current || dirtyRef.current) { alert("Hãy lưu hoặc xử lý bản nháp trước khi chuyển sổ."); return; } setWorkspace(next); }} />}
           {tab === "reports" && <Report entries={data.entries} month={month} onSelectMonth={setMonth} />}
           {tab === "transactions" && (
             <section className="card full-card">
@@ -1070,6 +1093,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                     setWalletEditId(null);
                     setWalletName("");
                     setWalletBalance("0");
+                    setWalletVisibility("private"); setWalletOwner(user.id); setWalletNote("");
                     setModal("wallet");
                   }}
                 >
@@ -1083,7 +1107,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                   </span>
                   <div>
                     <strong>{w.name}</strong>
-                    <small>Số dư ban đầu: {money(w.balance)}</small>
+                    <small>Số dư ban đầu: {money(w.balance)}{workspace ? ` · ${w.visibility === "shared" ? "Chia sẻ" : "Riêng tư"} · ${w.ownerId === user.id ? "Ví của bạn" : family?.members.find(m => m.userId === w.ownerId)?.phone || "Thành viên"}` : ""}{w.note ? ` · ${w.note}` : ""}</small>
                   </div>
                   <b>
                     {money(
@@ -1095,11 +1119,12 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                       ),
                     )}
                   </b>
-                  <div className="wallet-actions">
+                  {(!workspace || w.ownerId === user.id) && <div className="wallet-actions">
                     <button className="wallet-action" aria-label={`Sửa ví ${w.name}`} onClick={() => {
                       setWalletEditId(w.id);
                       setWalletName(w.name);
                       setWalletBalance(String(w.balance));
+                      setWalletVisibility(w.visibility || "private"); setWalletOwner(w.ownerId || user.id); setWalletNote(w.note || "");
                       setModal("wallet");
                     }}>Sửa</button>
                     <button className="wallet-action wallet-remove" aria-label={`Xóa ví ${w.name}`} onClick={() => {
@@ -1119,7 +1144,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                         ? data.wallets.map((item) => item.id === w.id ? { ...item, archived: true } : item)
                         : data.wallets.filter((item) => item.id !== w.id) });
                     }}>Xóa</button>
-                  </div>
+                  </div>}
                 </div>
               ))}
               {data.wallets.some((w) => w.archived) && (
@@ -1130,10 +1155,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                     <div className="wallet-row wallet-manage" key={w.id}>
                       <span className="wallet-icon"><CreditCard size={20} /></span>
                       <div><strong>{w.name}</strong><small>Đã lưu trữ</small></div>
-                      <button className="wallet-action" aria-label={`Khôi phục ví ${w.name}`} onClick={() => save({
+                      {(!workspace || w.ownerId === user.id) && <button className="wallet-action" aria-label={`Khôi phục ví ${w.name}`} onClick={() => save({
                         ...data,
                         wallets: data.wallets.map((item) => item.id === w.id ? { ...item, archived: false } : item),
-                      })}>Khôi phục</button>
+                      })}>Khôi phục</button>}
                     </div>
                   ))}
                 </div>
@@ -1271,10 +1296,11 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                   <p>JPG, PNG hoặc WebP, tối đa 5 MB. Ảnh được cắt vuông và đồng bộ theo tài khoản.</p>
                   {avatarError && modal !== "avatar" && <p className="avatar-error" role="alert">{avatarError}</p>}
                 </div>
-                <div className="avatar-actions">
+                {!workspace && <div className="avatar-actions">
                   <label className="outline-btn avatar-upload">{avatar ? "Đổi ảnh" : "Chọn ảnh"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={changeAvatar} /></label>
                   {avatar && <button type="button" className="outline-btn" onClick={() => save({ ...data, avatar: null })}>Xóa ảnh</button>}
-                </div>
+                </div>}
+                {workspace && <p>Để đổi ảnh, hãy chuyển về sổ cá nhân.</p>}
               </div>
               <div className="setting-row motion-settings">
                 <div>
@@ -1301,7 +1327,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                   Quản lý danh mục
                 </button>
               </div>
-              <div className="setting-row">
+              {!workspace && <div className="setting-row">
                 <div>
                   <strong>Chuyển dữ liệu bản thử</strong>
                   <p>
@@ -1357,7 +1383,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                 >
                   Chuyển dữ liệu
                 </button>
-              </div>
+              </div>}
               <div className="setting-row">
                 <div>
                   <strong>Phiên đăng nhập</strong>
@@ -1519,6 +1545,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                       value={wallet}
                       onChange={(e) => setWallet(e.target.value)}
                     >
+                      {!wallet && <option value="" disabled>Hãy thêm ví trước</option>}
                       {data.wallets.filter((w) => !w.archived || w.id === wallet).map((w) => (
                         <option value={w.id} key={w.id}>
                           {w.name}{w.archived ? " (đã lưu trữ)" : ""}
@@ -1537,7 +1564,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                   >
                     {!category && <option value="" disabled>Chưa có danh mục</option>}
                     {category && !data.categories[kind].includes(category) && (editId || modal === "rule") && (
-                      <option value={category}>{category} (đã xóa)</option>
+                      <option value={category}>{category} ({workspace ? "không có trong danh mục của bạn" : "đã xóa"})</option>
                     )}
                     {data.categories[kind].map((c) => (
                       <option key={c}>{c}</option>
@@ -1577,12 +1604,13 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (!walletName.trim()) return;
+                  if (workspace && walletEditId && (walletOwner !== user.id || walletVisibility === "shared") && !confirm("Cập nhật chủ sở hữu hoặc chia sẻ ví sẽ thay đổi người có thể xem toàn bộ giao dịch và lịch định kỳ của ví. Tiếp tục?")) return;
                   if (
                     save({
                       ...data,
                       wallets: walletEditId
-                        ? data.wallets.map((item) => item.id === walletEditId ? { ...item, name: walletName.trim(), balance: Number(walletBalance) || 0 } : item)
-                        : [...data.wallets, { id: uid(), name: walletName.trim(), balance: Number(walletBalance) || 0 }],
+                        ? data.wallets.map((item) => item.id === walletEditId ? { ...item, name: walletName.trim(), balance: Number(walletBalance) || 0, ...(workspace ? { ownerId: walletOwner, visibility: walletVisibility, note: walletNote.trim() } : {}) } : item)
+                        : [...data.wallets, { id: uid(), name: walletName.trim(), balance: Number(walletBalance) || 0, ...(workspace ? { ownerId: user.id, visibility: walletVisibility, note: walletNote.trim() } : {}) }],
                     })
                   ) {
                     setWalletName("");
@@ -1609,6 +1637,11 @@ function Ledger({ client, user, motionEnabled, toggleMotion }: { client: Supabas
                     onChange={(e) => setWalletBalance(e.target.value)}
                   />
                 </label>
+                {workspace && <>
+                  <label>Quyền xem<select value={walletVisibility} onChange={e => setWalletVisibility(e.target.value as "private" | "shared")}><option value="private">Riêng tư</option><option value="shared">Chia sẻ với gia đình</option></select></label>
+                  {walletEditId && <label>Chủ sở hữu<select value={walletOwner} onChange={e => setWalletOwner(e.target.value)}>{family?.members.filter(m => m.status === "active").map(m => <option key={m.userId} value={m.userId}>{m.userId === user.id ? "Tôi" : m.phone || "Thành viên"}</option>)}</select></label>}
+                  <label>Ghi chú ví<input value={walletNote} maxLength={200} onChange={e => setWalletNote(e.target.value)} placeholder="Ví dụ: Ví của chồng" /></label>
+                </>}
                 <p className="modal-desc">Số dư hiện tại = số dư ban đầu + các khoản thu − các khoản chi đã ghi. Thay đổi số dư ban đầu sẽ thay đổi số dư hiện tại.</p>
                 <button className="primary-btn form-submit">{walletEditId ? "Lưu thay đổi" : "Thêm ví"}</button>
               </form>

@@ -1,6 +1,6 @@
 # nhà mình. — Sổ thu chi
 
-Ứng dụng Next.js với số điện thoại và mật khẩu, sổ riêng theo tài khoản, và giao dịch định kỳ hàng tháng. Tính năng máy chủ chỉ hoạt động khi đã tạo và cấu hình Supabase như dưới đây; mã nguồn không tự tạo tài khoản, database hay dịch vụ bên ngoài.
+Ứng dụng Next.js với số điện thoại và mật khẩu, sổ riêng theo tài khoản, giao dịch định kỳ hàng tháng và ví gia đình riêng tư hoặc chia sẻ. Tính năng máy chủ chỉ hoạt động khi đã tạo và cấu hình Supabase như dưới đây; mã nguồn không tự tạo tài khoản, database hay dịch vụ bên ngoài.
 
 ## Cấu hình Supabase
 
@@ -16,6 +16,13 @@
 - Trên database đã cấu hình, chạy `supabase/migrations/202611180003_availability_probe.sql` trong SQL Editor. Hàm chỉ trả `true`, không truy cập sổ; quyền ẩn danh đối với bảng `ledgers` không thay đổi.
 - Trong GitHub Actions secrets của repository, đặt `SUPABASE_PROBE_URL` và `SUPABASE_PROBE_KEY` bằng URL và publishable/anon key của đúng dự án. Không dùng service role key. Workflow `Supabase availability` kiểm tra API database mỗi 6 giờ và có thể chạy thủ công trong Actions.
 - Đây là kiểm tra cố gắng duy trì hoạt động, không bảo đảm dự án Free không bị tạm dừng hoặc dịch vụ không gián đoạn. Xem kết quả trong GitHub Actions và email cảnh báo của Supabase. GitHub có thể tự tắt lịch của repository công khai sau 60 ngày không có hoạt động; khi đó cần bật lại workflow. Gói Pro tránh tạm dừng do không hoạt động nhưng có phí.
+
+## Gia đình và ví chia sẻ
+
+- Với cơ sở dữ liệu đã có hai migration đầu, chạy tiếp các migration `202611180004` đến `202611180008` theo thứ tự. Không chạy lại migration đã áp dụng. Kiểm tra pg_cron trước: lịch `nha-minh-family-recurring` được thêm riêng, lịch cá nhân không bị thay đổi.
+- Vào menu Gia đình để tạo gia đình. Chủ gia đình tạo liên kết một lần, hiệu lực 24 giờ; người nhận đăng nhập tài khoản riêng, gửi yêu cầu và chờ chủ gia đình duyệt. Số điện thoại chưa xác minh nên cần xác nhận người được mời ngoài ứng dụng.
+- Trong sổ cá nhân, chọn từng ví để chuyển vào gia đình, chọn chủ sở hữu và riêng tư hoặc chia sẻ. Giao dịch và lịch định kỳ của ví được chuyển cùng lúc; thao tác chỉ xảy ra sau xác nhận. Ví riêng chỉ chủ ví nhìn thấy; thành viên cùng sửa hoặc xóa giao dịch trong ví chung. Chỉ chủ ví đổi chủ sở hữu, quyền xem, thông tin hoặc xóa/lưu trữ ví. Thành viên chỉ có thể bị xóa sau khi chuyển quyền sở hữu tất cả ví của họ.
+- Danh mục, ngân sách và ảnh đại diện vẫn thuộc từng tài khoản. Báo cáo sổ gia đình chỉ tính ví mà người đang xem được phép truy cập. Đổi ảnh tại sổ cá nhân. Trước khi chuyển, một bản dữ liệu cá nhân được giữ trong bảng quản trị hạn chế quyền, hỗ trợ khôi phục thủ công; đây không phải bản sao lưu độc lập.
 
 ## Chạy trên máy
 
@@ -35,12 +42,12 @@ Mở URL Local được in ra. Kiểm tra `npm run lint` và `npm run build`. N�
 - Khi ghi, server so sánh version. Nếu hai thiết bị cùng sửa, bản cũ bị từ chối thay vì âm thầm ghi đè. Bản nháp chưa được xác nhận được lưu riêng theo tài khoản trong trình duyệt, có thể khôi phục sau khi tải lại. Bản nháp chứa thông tin tài chính không mã hóa và không theo sang thiết bị khác; xóa dữ liệu trình duyệt có thể làm mất bản nháp. Khi xung đột, hãy đối chiếu và nhập lại thay đổi vào dữ liệu mới.
 - Ứng dụng đọc lại dữ liệu khi quay lại cửa sổ và khoảng mỗi 20 giây khi không sửa hoặc có bản nháp chưa lưu. Cần kết nối mạng.
 - Dữ liệu `localStorage` của bản thử trước **không tự đưa lên server và không bị xóa**. Để chuyển, trên đúng trình duyệt và đúng domain cũ, đăng nhập vào sổ còn trống, vào Cài đặt → Chuyển dữ liệu. Chỉ làm sau khi kiểm tra dữ liệu mẫu vì các giao dịch mẫu cũng sẽ được chuyển. Cần xác nhận thao tác; sổ đang có giao dịch/quy tắc/ngân sách không bị ghi đè. Việc đồng bộ tài khoản còn phụ thuộc cấu hình Supabase.
-- Dữ liệu hiện lưu dạng một tài liệu JSON trên mỗi tài khoản, tối đa 2 MB. Cần chuyển sang bảng giao dịch phân trang và bổ sung sao lưu/khôi phục trước khi mở rộng đáng kể; không coi đây là nền tảng sản xuất hoàn chỉnh cho nhiều dữ liệu hoặc sử dụng chung sổ.
+- Dữ liệu hiện lưu dạng một tài liệu JSON trên mỗi tài khoản, tối đa 2 MB. Cần chuyển sang bảng giao dịch phân trang và bổ sung sao lưu/khôi phục trước khi mở rộng đáng kể; không coi đây là nền tảng sản xuất hoàn chỉnh cho nhiều dữ liệu hoặc lượng dữ liệu gia đình lớn.
 
 ## Kiểm thử database cục bộ
 
-Với PostgreSQL dùng riêng cho kiểm thử (không dùng database cá nhân), chạy `tests/ledger-setup.sql`, `tests/cron-setup.sql`, hai migration rồi `tests/recurring-reliability.sql` bằng `psql -v ON_ERROR_STOP=1`. Hai script setup mô phỏng Supabase Auth và Cron, không dùng trên Supabase thật. Test kiểm tra cách ly tài khoản, lỗi từng sổ, phục hồi và chạy lại không tạo trùng. Chạy `npm test` để kiểm tra đồng bộ, bản nháp và tính toán trên giao diện. Các test này không thay thế việc thử nhiều thiết bị và cron trên Supabase thực tế.
+Với PostgreSQL dùng riêng cho kiểm thử (không dùng database cá nhân), chạy `tests/ledger-setup.sql`, `tests/cron-setup.sql`, hai migration rồi `tests/recurring-reliability.sql` bằng `psql -v ON_ERROR_STOP=1`. Hai script setup mô phỏng Supabase Auth và Cron, không dùng trên Supabase thật. Test kiểm tra cách ly tài khoản, lỗi từng sổ, phục hồi và chạy lại không tạo trùng. Với database thử riêng, thêm cột `phone` vào `auth.users`, chạy các migration gia đình theo thứ tự rồi lần lượt `tests/family-membership.sql`, `tests/family-wallet-security.sql`, `tests/family-recurring.sql` và `tests/family-removal.sql`. Chạy `npm test` để kiểm tra đồng bộ, bản nháp và tính toán trên giao diện. Các test này không thay thế việc thử nhiều thiết bị và cron trên Supabase thực tế.
 
 ## Phạm vi còn lại
 
-Màn hình lịch, báo cáo năm, khôi phục tài khoản, sao lưu/khôi phục, chia sẻ sổ, export (P1), PWA và ngân sách theo danh mục chưa hoàn thành. Không có kết nối ngân hàng, chuyển tiền hoặc thanh toán.
+Màn hình lịch, báo cáo năm, khôi phục tài khoản, sao lưu/khôi phục tự động, export (P1), PWA và ngân sách theo danh mục chưa hoàn thành. Không có kết nối ngân hàng, chuyển tiền hoặc thanh toán.
