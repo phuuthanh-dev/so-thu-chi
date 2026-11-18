@@ -9,14 +9,16 @@ vi.mock("../src/lib/avatar", async (importOriginal) => ({ ...(await importOrigin
 vi.mock("../src/app/avatar-editor", () => ({ AvatarEditor: ({ onSave, onCancel, error }: { onSave: (crop: { zoom: number; x: number; y: number }) => void; onCancel: () => void; error: string }) => <div>{error && <p role="alert">{error}</p>}<button onClick={() => onSave({ zoom: 2, x: 25, y: 75 })}>Lưu ảnh</button><button onClick={onCancel}>Hủy</button></div> }));
 vi.mock("../src/app/auth", () => ({
   AuthGate: ({ children }: { children: (client: unknown, user: unknown) => React.ReactNode }) => children({
-    rpc: async (name: string, args?: { expected_version: number; new_data: Record<string, unknown> }) => {
+    rpc: async (name: string, args?: { expected_version: string; new_data: Record<string, unknown> }) => {
+      if (name === "family_status") return { data: null, error: null };
+      if (name === "family_recurring_status") return { data: null, error: { code: "42501" } };
       if (name === "recurring_status") return { data: [], error: null };
-      if (name === "open_ledger") return server.offline ? { data: null, error: { message: "offline" } } : { data: [{ version: server.version, data: structuredClone(server.data) }], error: null };
-      if (name === "save_ledger") {
+      if (name === "personal_combined_open") return server.offline ? { data: null, error: { message: "offline" } } : { data: [{ version: `${server.version}:none:0`, data: structuredClone(server.data) }], error: null };
+      if (name === "personal_combined_save") {
         if (server.saveFails) return { data: null, error: { message: "offline" } };
-        if (args?.expected_version !== server.version) return { data: [], error: null };
+        if (args?.expected_version !== `${server.version}:none:0`) return { data: [], error: null };
         server.data = structuredClone(args.new_data); server.version++;
-        return { data: [{ version: server.version, data: structuredClone(server.data) }], error: null };
+        return { data: [{ version: `${server.version}:none:0`, data: structuredClone(server.data) }], error: null };
       }
       throw new Error(`unexpected RPC: ${name}`);
     },

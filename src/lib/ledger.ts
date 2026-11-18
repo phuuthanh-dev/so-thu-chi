@@ -1,7 +1,7 @@
 export type Draft<T> = {
   key: string;
   id: string;
-  expectedVersion: number;
+  expectedVersion: number | string;
   data: T;
   createdAt: number;
 };
@@ -17,7 +17,7 @@ export function writeDraft<T>(
   storage: StorageLike,
   ownerId: string,
   id: string,
-  expectedVersion: number,
+  expectedVersion: number | string,
   data: T,
 ): Draft<T> {
   const draft = {
@@ -45,7 +45,7 @@ export function listDrafts<T>(
         item?.key === key &&
         typeof item.id === "string" &&
         draftPrefix(ownerId) + item.id === key &&
-        Number.isSafeInteger(item.expectedVersion) &&
+        (Number.isSafeInteger(item.expectedVersion) || (typeof item.expectedVersion === "string" && /^\d+:(?:none|[0-9a-f-]{36}):\d+$/.test(item.expectedVersion))) &&
         item.data &&
         Number.isFinite(item.createdAt)
       ) {

@@ -110,3 +110,13 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
 .family-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .family-transfer { margin-top: 24px; }
 @media (max-width: 600px) { .family-form, .family-wallet-choice { align-items: stretch; } .family-wallet-choice label { flex-basis: 100%; } .family-actions { width: 100%; } }
+
+.workspace-switch{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:10px 0 0;padding:4px;border:1px solid #efdce4;border-radius:11px;background:#fff4f7;flex-shrink:0}
+.workspace-switch button{min-width:0;min-height:44px;border:0;border-radius:8px;background:transparent;color:#785262;font-size:12px;font-weight:700}
+.workspace-switch button[aria-pressed="true"]{background:#fff;color:#8d4260;box-shadow:0 1px 5px #78495b22}
+.workspace-switch button:hover{background:#fbe6ee}
+
+.sidebar{overflow-y:auto;overscroll-behavior:contain}.sidebar>.brand,.sidebar>.workspace,.sidebar>.workspace-switch,.sidebar>.side-label,.sidebar>nav,.sidebar>.sidebar-bottom{flex-shrink:0}.wallet-privacy{white-space:nowrap}
+
+.breadcrumb-home .breadcrumb-label-full,.breadcrumb-home .breadcrumb-label-compact{margin:0;color:inherit}.breadcrumb-home .breadcrumb-label-compact{display:none}@media(max-width:760px){.breadcrumb-home .breadcrumb-label-full{display:none}.breadcrumb-home .breadcrumb-label-compact{display:inline}}
+.sidebar{scrollbar-width:thin;scrollbar-color:#e8cbd7 transparent}.workspace-switch{gap:8px}

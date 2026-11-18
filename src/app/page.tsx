@@ -120,7 +120,7 @@ const nav = [
   { id: "reports", label: "Báo cáo", Icon: TrendingUp },
   { id: "budget", label: "Ngân sách", Icon: Target },
   { id: "recurring", label: "Định kỳ", Icon: Repeat2 },
-  { id: "family", label: "Gia đình", Icon: Users },
+  { id: "family", label: "Quản lý gia đình", Icon: Users },
 ];
 
 gsap.registerPlugin(useGSAP);
@@ -149,6 +149,11 @@ export default function Page() {
 function Workspaces({ client, user, motionEnabled, toggleMotion }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void }) {
   const [workspace, setWorkspace] = useState<Family | null>(null);
   const [family, setFamily] = useState<Family | null>(null);
+  useEffect(() => {
+    let active = true;
+    void (async () => { try { const { data, error } = await client.rpc("family_status"); if (active && !error) setFamily(data as Family | null); } catch { /* The personal ledger can still load without family status. */ } })();
+    return () => { active = false; };
+  }, [client]);
   return <Ledger key={workspace?.id || "personal"} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} workspace={workspace} family={family} setFamily={setFamily} setWorkspace={setWorkspace} />;
 }
 
@@ -229,7 +234,9 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [menu, modal]);
-  const version = useRef<number | null>(null),
+  const familyRef = useRef(family);
+  useEffect(() => { familyRef.current = family; }, [family]);
+  const version = useRef<number | string | null>(null),
     busyRef = useRef(false),
     dirtyRef = useRef(false),
     activeDraftId = useRef<string | null>(null),
@@ -237,6 +244,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   useEffect(() => {
     modalRef.current = modal;
   }, [modal]);
+  const switchLedger = (next: Family | null) => {
+    if (busyRef.current || dirtyRef.current || modalRef.current) { alert("Hãy lưu hoặc xử lý bản nháp trước khi chuyển sổ."); return; }
+    setWorkspace(next);
+  };
   const [busy, setBusy] = useState(false),
     [syncError, setSyncError] = useState(""),
     [loadError, setLoadError] = useState(""),
@@ -255,7 +266,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
         return;
       const previousVersion = version.current;
       try {
-        const { data: rows, error } = await client.rpc(workspace ? "family_open_ledger" : "open_ledger");
+        const { data: rows, error } = await client.rpc(workspace ? "family_open_ledger" : "personal_combined_open");
         if (error || !rows?.[0]) throw error || new Error("No ledger");
         if (
           !force &&
@@ -265,7 +276,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
             version.current !== previousVersion)
         )
           return;
-        version.current = Number(rows[0].version);
+        version.current = workspace ? Number(rows[0].version) : String(rows[0].version);
         setData(rows[0].data as Data);
         setLoadError("");
         if (force) {
@@ -274,13 +285,14 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
           setSyncError("");
         }
         const status = await client.rpc(workspace ? "family_recurring_status" : "recurring_status");
-        if (status.error) {
+        const familyStatus = !workspace && familyRef.current?.status === "active" ? await client.rpc("family_recurring_status") : null;
+        if (status.error || (familyStatus?.error && familyStatus.error.code !== "42501")) {
           setRecurringError(
             "Không kiểm tra được trạng thái giao dịch định kỳ. Hãy thử lại khi có kết nối.",
           );
         } else {
           setRecurringError(
-            status.data?.length
+            (status.data?.length || familyStatus?.data?.length)
               ? "Có lỗi khi ghi giao dịch định kỳ. Hệ thống sẽ thử lại; hãy kiểm tra kích thước sổ và liên hệ người quản trị nếu lỗi tiếp diễn."
               : "",
           );
@@ -334,7 +346,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     setSyncError("");
     void (async () => {
       try {
-        const { data: savedRows, error } = await client.rpc(workspace ? "family_save_ledger" : "save_ledger", {
+        const { data: savedRows, error } = await client.rpc(workspace ? "family_save_ledger" : "personal_combined_save", {
           expected_version: version.current,
           new_data: d,
         });
@@ -342,7 +354,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
         if (error) throw error;
         if (!rows?.[0]) {
           // The previous write may have succeeded even though its response was lost.
-          const latest = await client.rpc(workspace ? "family_open_ledger" : "open_ledger");
+          const latest = await client.rpc(workspace ? "family_open_ledger" : "personal_combined_open");
           if (
             latest.error ||
             !latest.data?.[0] ||
@@ -355,7 +367,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
           }
           rows = latest.data;
         }
-        version.current = Number(rows[0].version);
+        version.current = workspace ? Number(rows[0].version) : String(rows[0].version);
         setData(rows[0].data as Data);
         dirtyRef.current = false;
         activeDraftId.current = null;
@@ -428,6 +440,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   const submitEntry = (ev: React.FormEvent) => {
     ev.preventDefault();
     if (!data || !Number(amount) || !wallet || !category) return;
+    const original = modal === "rule" ? data.rules.find(item => item.id === ruleId) : data.entries.find(item => item.id === editId);
+    if (!workspace && original && !!data.wallets.find(item => item.id === original.wallet)?.ownerId !== !!data.wallets.find(item => item.id === wallet)?.ownerId) {
+      alert("Chưa hỗ trợ chuyển giao dịch hoặc lịch định kỳ giữa ví cá nhân và ví gia đình. Bạn vẫn có thể sửa các thông tin khác."); return;
+    }
     if (modal === "rule") {
       const existing = data.rules.find((item) => item.id === ruleId);
       if (!existing) return;
@@ -513,7 +529,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     const previouslyUsed = data.entries.some((item) => item.type === kind && item.category === name)
       || data.rules.some((item) => item.type === kind && item.category === name);
     if (previouslyUsed && !confirm(`Tên “${name}” đã được dùng trong giao dịch hoặc định kỳ cũ. Đổi tên sẽ gộp các khoản này vào cùng danh mục trong báo cáo. Bạn có muốn tiếp tục?`)) return;
-    if (workspace && (data.entries.some(item => item.type === kind && item.category === editingCategory && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared")) || data.rules.some(item => item.type === kind && item.category === editingCategory && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared"))) && !confirm("Đổi tên cũng cập nhật các giao dịch và lịch định kỳ cùng danh mục trong ví chia sẻ mà thành viên khác có thể xem. Tiếp tục?")) return;
+    if ((data.entries.some(item => item.type === kind && item.category === editingCategory && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared")) || data.rules.some(item => item.type === kind && item.category === editingCategory && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared"))) && !confirm("Đổi tên cũng cập nhật các giao dịch và lịch định kỳ cùng danh mục trong ví chia sẻ mà thành viên khác có thể xem. Tiếp tục?")) return;
     if (save({
       ...data,
       categories: { ...data.categories, [kind]: data.categories[kind].map((item) => item === editingCategory ? name : item) },
@@ -580,7 +596,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <small>
                 {e.category} ·{" "}
                 {data.wallets.find((w) => w.id === e.wallet)?.name}
-                {e.origin ? " · Định kỳ" : ""}{workspace && e.createdBy ? ` · ${e.createdBy === user.id ? "Bạn tạo" : `${family?.members.find(m => m.userId === e.createdBy)?.phone || "Thành viên"} tạo`}` : ""}
+                {e.origin ? " · Định kỳ" : ""}{e.createdBy ? ` · ${e.createdBy === user.id ? "Bạn tạo" : `${family?.members.find(m => m.userId === e.createdBy)?.phone || "Thành viên"} tạo`}` : ""}
               </small>
             </button>
             <span className="transaction-date">
@@ -640,13 +656,17 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
             <X size={19} />
           </button>
         </div>
-        <button type="button" className="workspace" aria-label="Mở tổng quan sổ cá nhân" onClick={() => { setTab("overview"); setMenu(false); }}>
+        <button type="button" className="workspace" aria-label={workspace ? "Mở tổng quan sổ gia đình" : "Mở tổng quan sổ cá nhân"} onClick={() => { setTab("overview"); setMenu(false); }}>
           <div className="workspace-icon">N</div>
           <div>
             <strong>{workspace ? workspace.name : "Không gian của tôi"}</strong>
             <small>{workspace ? "Sổ gia đình" : "Sổ cá nhân"}</small>
           </div>
         </button>
+        <div className="workspace-switch" role="group" aria-label="Chọn không gian">
+          <button type="button" aria-label="Chuyển sang sổ cá nhân" aria-pressed={!workspace} onClick={() => workspace ? switchLedger(null) : setMenu(false)}>Cá nhân</button>
+          <button type="button" aria-label="Chuyển sang sổ gia đình" aria-pressed={!!workspace} onClick={() => { if (workspace) { setMenu(false); return; } if (family?.status === "active") switchLedger(family); else { setTab("family"); setMenu(false); } }}>Gia đình</button>
+        </div>
         <p className="side-label">KHÔNG GIAN CỦA BẠN</p>
         <nav>
           {nav.map(({ id, label, Icon }) => (
@@ -700,7 +720,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
             <Menu size={20} />
           </button>
           <div className="breadcrumb">
-            <button type="button" className="breadcrumb-home" onClick={() => setTab("overview")}>{workspace ? workspace.name : "Không gian của tôi"}</button> <span>/</span>{" "}
+            <button type="button" className="breadcrumb-home" aria-label={workspace ? workspace.name : "Không gian của tôi"} onClick={() => setTab("overview")}><span className="breadcrumb-label-full">{workspace ? workspace.name : "Không gian của tôi"}</span><span className="breadcrumb-label-compact" aria-hidden="true">{workspace ? "Gia đình" : "Cá nhân"}</span></button> <span>/</span>{" "}
             <strong>{nav.find((x) => x.id === tab)?.label || "Cài đặt"}</strong>
           </div>
           <div className="top-actions">
@@ -777,6 +797,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                         )
                       )
                         return;
+                      if (!workspace && typeof draft.expectedVersion === "number") {
+                        alert("Bản nháp cũ vẫn được giữ trên thiết bị nhưng không thể áp dụng tự động vào sổ mới. Hãy tải bản nháp về để đối chiếu và nhập lại thay đổi.");
+                        return;
+                      }
                       activeDraftId.current = draft.id;
                       dirtyRef.current = true;
                       version.current = draft.expectedVersion;
@@ -788,6 +812,11 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   >
                     Khôi phục
                   </button>
+                  {!workspace && typeof draft.expectedVersion === "number" && <button onClick={() => {
+                    const blob = new Blob([JSON.stringify(draft.data, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob); const link = document.createElement("a");
+                    link.href = url; link.download = "so-thu-chi-ban-nhap.json"; link.click(); URL.revokeObjectURL(url);
+                  }}>Tải bản nháp cũ</button>}
                   <button
                     onClick={() => {
                       if (
@@ -1040,7 +1069,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               </div>
             </>
           )}
-          {tab === "family" && <FamilyManager client={client} userId={user.id} family={family} onFamily={setFamily} personal={!workspace} wallets={data.wallets} personalVersion={() => version.current} disabled={busy || !!syncError} refresh={() => refresh(true)} switchWorkspace={(next) => { if (busyRef.current || dirtyRef.current) { alert("Hãy lưu hoặc xử lý bản nháp trước khi chuyển sổ."); return; } setWorkspace(next); }} />}
+          {tab === "family" && <FamilyManager client={client} userId={user.id} family={family} onFamily={setFamily} personal={!workspace} wallets={data.wallets.filter(item => !item.ownerId)} personalVersion={() => typeof version.current === "string" ? Number(version.current.split(":")[0]) : version.current} disabled={busy || !!syncError} refresh={() => refresh(true)} switchWorkspace={switchLedger} />}
           {tab === "reports" && <Report entries={data.entries} month={month} onSelectMonth={setMonth} />}
           {tab === "transactions" && (
             <section className="card full-card">
@@ -1107,7 +1136,9 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   </span>
                   <div>
                     <strong>{w.name}</strong>
-                    <small>Số dư ban đầu: {money(w.balance)}{workspace ? ` · ${w.visibility === "shared" ? "Chia sẻ" : "Riêng tư"} · ${w.ownerId === user.id ? "Ví của bạn" : family?.members.find(m => m.userId === w.ownerId)?.phone || "Thành viên"}` : ""}{w.note ? ` · ${w.note}` : ""}</small>
+                    <small>Số dư ban đầu: {money(w.balance)}</small>
+                    {w.ownerId && <small><span className="wallet-privacy">{w.visibility === "shared" ? "Chia sẻ" : "Riêng tư"}</span> · {w.ownerId === user.id ? "Ví của bạn" : family?.members.find(m => m.userId === w.ownerId)?.phone || "Thành viên"}</small>}
+                    {w.note && <small>{w.note}</small>}
                   </div>
                   <b>
                     {money(
@@ -1286,7 +1317,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <div className="setting-row account-summary">
                 <div>
                   <strong>Tài khoản của bạn</strong>
-                  <p>{user.phone || "Sổ cá nhân"} · Chủ sở hữu</p>
+                  <p>{user.phone || "Tài khoản"} · {workspace ? (family?.role === "owner" ? "Chủ gia đình" : "Thành viên") : "Sổ cá nhân"}</p>
                 </div>
               </div>
               <div className="setting-row avatar-settings">
@@ -1604,12 +1635,12 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (!walletName.trim()) return;
-                  if (workspace && walletEditId && (walletOwner !== user.id || walletVisibility === "shared") && !confirm("Cập nhật chủ sở hữu hoặc chia sẻ ví sẽ thay đổi người có thể xem toàn bộ giao dịch và lịch định kỳ của ví. Tiếp tục?")) return;
+                  if (walletEditId && (workspace || data.wallets.find(item => item.id === walletEditId)?.ownerId) && (walletOwner !== user.id || walletVisibility === "shared") && !confirm("Cập nhật chủ sở hữu hoặc chia sẻ ví sẽ thay đổi người có thể xem toàn bộ giao dịch và lịch định kỳ của ví. Tiếp tục?")) return;
                   if (
                     save({
                       ...data,
                       wallets: walletEditId
-                        ? data.wallets.map((item) => item.id === walletEditId ? { ...item, name: walletName.trim(), balance: Number(walletBalance) || 0, ...(workspace ? { ownerId: walletOwner, visibility: walletVisibility, note: walletNote.trim() } : {}) } : item)
+                        ? data.wallets.map((item) => item.id === walletEditId ? { ...item, name: walletName.trim(), balance: Number(walletBalance) || 0, ...((workspace || item.ownerId) ? { ownerId: walletOwner, visibility: walletVisibility, note: walletNote.trim() } : {}) } : item)
                         : [...data.wallets, { id: uid(), name: walletName.trim(), balance: Number(walletBalance) || 0, ...(workspace ? { ownerId: user.id, visibility: walletVisibility, note: walletNote.trim() } : {}) }],
                     })
                   ) {
@@ -1637,7 +1668,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     onChange={(e) => setWalletBalance(e.target.value)}
                   />
                 </label>
-                {workspace && <>
+                {(workspace || (walletEditId && data.wallets.find(item => item.id === walletEditId)?.ownerId)) && <>
                   <label>Quyền xem<select value={walletVisibility} onChange={e => setWalletVisibility(e.target.value as "private" | "shared")}><option value="private">Riêng tư</option><option value="shared">Chia sẻ với gia đình</option></select></label>
                   {walletEditId && <label>Chủ sở hữu<select value={walletOwner} onChange={e => setWalletOwner(e.target.value)}>{family?.members.filter(m => m.status === "active").map(m => <option key={m.userId} value={m.userId}>{m.userId === user.id ? "Tôi" : m.phone || "Thành viên"}</option>)}</select></label>}
                   <label>Ghi chú ví<input value={walletNote} maxLength={200} onChange={e => setWalletNote(e.target.value)} placeholder="Ví dụ: Ví của chồng" /></label>
