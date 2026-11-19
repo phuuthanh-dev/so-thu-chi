@@ -10,7 +10,7 @@ import { Report } from "./report";
 import { CategoryIcon } from "./category-icon";
 import { CategoryAppearancePicker } from "./category-appearance-picker";
 import { customizedCategoryAppearance, type CategoryAppearanceRecord } from "@/lib/category-icons";
-import { FamilyManager, captureFamilyInvitation, type Family } from "./family";
+import { FamilyManager, captureFamilyInvitation, memberName, type Family } from "./family";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { AuthGate } from "./auth";
 import {
@@ -80,6 +80,7 @@ type Data = {
   rules: Rule[];
   categories: Record<Kind, string[]>;
   avatar?: string | null;
+  displayName?: string | null;
 };
 const dateISO = () => {
   const d = new Date();
@@ -132,15 +133,28 @@ export default function Page() {
 function Workspaces({ client, user, motionEnabled, toggleMotion }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void }) {
   const [workspace, setWorkspace] = useState<Family | null>(null);
   const [family, setFamily] = useState<Family | null>(null);
-  useEffect(() => {
-    let active = true;
-    void (async () => { try { const { data, error } = await client.rpc("family_status"); if (active && !error) setFamily(data as Family | null); } catch { /* The personal ledger can still load without family status. */ } })();
-    return () => { active = false; };
+  const familySequence = useRef(0);
+  const alive = useRef(false);
+  const reloadFamily = useCallback(async () => {
+    const seq = ++familySequence.current;
+    try {
+      const { data, error } = await client.rpc("family_status");
+      if (alive.current && seq === familySequence.current && !error) setFamily(data as Family | null);
+    } catch { /* The personal ledger remains available. */ }
   }, [client]);
-  return <Ledger key={workspace?.id || "personal"} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} workspace={workspace} family={family} setFamily={setFamily} setWorkspace={setWorkspace} />;
+  const acceptFamily = useCallback((value: Family | null) => { familySequence.current++; setFamily(value); }, []);
+  useEffect(() => {
+    alive.current = true;
+    void Promise.resolve().then(reloadFamily);
+    const timer = window.setInterval(() => void reloadFamily(), 20000);
+    const onFocus = () => void reloadFamily();
+    window.addEventListener("focus", onFocus);
+    return () => { alive.current = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
+  }, [reloadFamily]);
+  return <Ledger key={workspace?.id || "personal"} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} workspace={workspace} family={family} setFamily={acceptFamily} refreshFamily={reloadFamily} setWorkspace={setWorkspace} />;
 }
 
-function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, setFamily, setWorkspace }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void; workspace: Family | null; family: Family | null; setFamily: (family: Family | null) => void; setWorkspace: (family: Family | null) => void }) {
+function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, setFamily, refreshFamily, setWorkspace }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void; workspace: Family | null; family: Family | null; setFamily: (family: Family | null) => void; refreshFamily: () => Promise<void>; setWorkspace: (family: Family | null) => void }) {
   const draftOwner = workspace ? `${user.id}:family:${workspace.id}` : user.id;
   const [data, setData] = useState<Data | null>(null),
     [tab, setTab] = useState("overview"),
@@ -178,6 +192,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
   const [editingAppearanceRevision, setEditingAppearanceRevision] = useState(0);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [originalName, setOriginalName] = useState("");
+  const [nameError, setNameError] = useState("");
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -235,8 +253,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   }, [modal]);
   const appearanceSequence = useRef(0);
   const loadAppearances = useCallback(async (force = false) => {
-    if (!force && (busyRef.current || modalRef.current === "category")) return;
-    const sequence = appearanceSequence.current;
+    if (!force && busyRef.current) return;
+    const sequence = ++appearanceSequence.current;
     try {
       const result = await client.rpc("category_appearances_get");
       if (result.error || !Array.isArray(result.data)) throw result.error || new Error("Missing appearance data");
@@ -412,6 +430,26 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
       }
     })();
     return true;
+  };
+  const saveDisplayName = async () => {
+    const clean = nameInput.trim();
+    if (!clean || Array.from(clean).length > 50 || /[\x00-\x1f\x7f]/.test(clean)) { setNameError("Nhập tên từ 1 đến 50 ký tự, không chứa ký tự điều khiển."); return; }
+    if (busyRef.current || dirtyRef.current) { setNameError("Hãy lưu hoặc xử lý bản nháp trước khi đổi tên."); return; }
+    busyRef.current = true; setBusy(true); setNameError("");
+    try {
+      const latest = await client.rpc("open_ledger");
+      if (latest.error || !latest.data?.[0]) throw new Error("read failed");
+      const row = latest.data[0];
+      if ((row.data?.displayName || "") !== originalName) { setNameError("Tên đã thay đổi trên thiết bị khác. Hãy đóng và mở lại để cập nhật."); return; }
+      const result = await client.rpc("account_set_display_name", {p_expected_version: row.version, p_display_name: clean});
+      if (result.error) throw result.error;
+      if (!result.data?.[0]) { setNameError("Dữ liệu vừa thay đổi trên thiết bị khác. Hãy thử lại."); return; }
+      setData(previous => previous ? { ...previous, displayName: clean } : previous);
+      setEditingName(false);
+      await refresh(true);
+      await refreshFamily();
+    } catch { setNameError("Không lưu được tên. Hãy kiểm tra kết nối và thử lại."); }
+    finally { busyRef.current = false; setBusy(false); }
   };
   const entries = useMemo(
     () =>
@@ -624,7 +662,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <small>
                 {e.category} ·{" "}
                 {data.wallets.find((w) => w.id === e.wallet)?.name}
-                {e.origin ? " · Định kỳ" : ""}{e.createdBy ? ` · ${e.createdBy === user.id ? "Bạn tạo" : `${family?.members.find(m => m.userId === e.createdBy)?.phone || "Thành viên"} tạo`}` : ""}
+                {e.origin ? " · Định kỳ" : ""}{e.createdBy ? ` · ${e.createdBy === user.id ? "Bạn tạo" : `${memberName(family?.members.find(m => m.userId === e.createdBy), user.id)} tạo`}` : ""}
               </small>
             </button>
             <span className="transaction-date">
@@ -728,7 +766,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
           <button type="button" className="profile" aria-label="Cài đặt tài khoản" onClick={() => { setTab("settings"); setMenu(false); }}>
             <div className="avatar">{renderAvatar()}</div>
             <div>
-              <strong>{user.phone || "Tài khoản"}</strong>
+              <strong>{data.displayName?.trim() || "Chưa đặt tên"}</strong>
               <small>{workspace ? "Sổ gia đình" : "Chủ sở hữu"}</small>
             </div>
             <MoreHorizontal size={18} />
@@ -1158,7 +1196,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   <div>
                     <strong>{w.name}</strong>
                     <small>Số dư ban đầu: {money(w.balance)}</small>
-                    {w.ownerId && <small><span className="wallet-privacy">{w.visibility === "shared" ? "Chia sẻ" : "Riêng tư"}</span> · {w.ownerId === user.id ? "Ví của bạn" : family?.members.find(m => m.userId === w.ownerId)?.phone || "Thành viên"}</small>}
+                    {w.ownerId && <small><span className="wallet-privacy">{w.visibility === "shared" ? "Chia sẻ" : "Riêng tư"}</span> · {w.ownerId === user.id ? "Ví của bạn" : memberName(family?.members.find(m => m.userId === w.ownerId), user.id)}</small>}
                     {w.note && <small>{w.note}</small>}
                   </div>
                   <b>
@@ -1338,8 +1376,18 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <div className="setting-row account-summary">
                 <div>
                   <strong>Tài khoản của bạn</strong>
-                  <p>{user.phone || "Tài khoản"} · {workspace ? (family?.role === "owner" ? "Chủ gia đình" : "Thành viên") : "Sổ cá nhân"}</p>
+                  <p>{data.displayName?.trim() || "Chưa đặt tên"} · {workspace ? (family?.role === "owner" ? "Chủ gia đình" : "Thành viên") : "Sổ cá nhân"}</p>
                 </div>
+              </div>
+              <div className="setting-row profile-name-row">
+                <div><strong>Tên hiển thị</strong><p>Tên và ảnh đại diện hiển thị với các thành viên gia đình.</p></div>
+                {!editingName && <button type="button" className="outline-btn" onClick={() => { const current = data.displayName || ""; setOriginalName(current); setNameInput(current); setNameError(""); setEditingName(true); }}>Sửa tên</button>}
+                {editingName && <form className="profile-name-form" onSubmit={event => { event.preventDefault(); void saveDisplayName(); }}>
+                  <label htmlFor="profile-display-name">Tên hiển thị</label>
+                  <input id="profile-display-name" value={nameInput} maxLength={50} required onChange={event => setNameInput(event.target.value)} />
+                  {nameError && <p role="alert">{nameError}</p>}
+                  <div className="profile-name-actions"><button type="button" className="outline-btn" disabled={busy} onClick={() => setEditingName(false)}>Hủy</button><button className="primary-btn" disabled={busy}>Lưu tên</button></div>
+                </form>}
               </div>
               <div className="setting-row avatar-settings">
                 <div className="avatar-preview avatar">{renderAvatar()}</div>
@@ -1374,7 +1422,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 </div>
                 <button
                   className="outline-btn"
-                  onClick={() => setModal("category")}
+                  onClick={() => { void loadAppearances(true); setModal("category"); }}
                 >
                   Quản lý danh mục
                 </button>
@@ -1694,7 +1742,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 </label>
                 {(workspace || (walletEditId && data.wallets.find(item => item.id === walletEditId)?.ownerId)) && <>
                   <label>Quyền xem<select value={walletVisibility} onChange={e => setWalletVisibility(e.target.value as "private" | "shared")}><option value="private">Riêng tư</option><option value="shared">Chia sẻ với gia đình</option></select></label>
-                  {walletEditId && <label>Chủ sở hữu<select value={walletOwner} onChange={e => setWalletOwner(e.target.value)}>{family?.members.filter(m => m.status === "active").map(m => <option key={m.userId} value={m.userId}>{m.userId === user.id ? "Tôi" : m.phone || "Thành viên"}</option>)}</select></label>}
+                  {walletEditId && <label>Chủ sở hữu<select value={walletOwner} onChange={e => setWalletOwner(e.target.value)}>{family?.members.filter(m => m.status === "active").map(m => <option key={m.userId} value={m.userId}>{memberName(m, user.id)}</option>)}</select></label>}
                   <label>Ghi chú ví<input value={walletNote} maxLength={200} onChange={e => setWalletNote(e.target.value)} placeholder="Ví dụ: Ví của chồng" /></label>
                 </>}
                 <p className="modal-desc">Số dư hiện tại = số dư ban đầu + các khoản thu − các khoản chi đã ghi. Thay đổi số dư ban đầu sẽ thay đổi số dư hiện tại.</p>

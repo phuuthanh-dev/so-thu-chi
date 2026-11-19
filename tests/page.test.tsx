@@ -10,7 +10,7 @@ vi.mock("../src/lib/avatar", async (importOriginal) => ({ ...(await importOrigin
 vi.mock("../src/app/avatar-editor", () => ({ AvatarEditor: ({ onSave, onCancel, error }: { onSave: (crop: { zoom: number; x: number; y: number }) => void; onCancel: () => void; error: string }) => <div>{error && <p role="alert">{error}</p>}<button onClick={() => onSave({ zoom: 2, x: 25, y: 75 })}>Lưu ảnh</button><button onClick={onCancel}>Hủy</button></div> }));
 vi.mock("../src/app/auth", () => ({
   AuthGate: ({ children }: { children: (client: unknown, user: unknown) => React.ReactNode }) => children({
-    rpc: async (name: string, args?: { expected_version: string; new_data: Record<string, unknown>; p_expected_version: string; p_new_data: Record<string, unknown>; p_kind: string; p_category: string; p_new_name: string; p_icon: string | null; p_color: string | null; p_expected_revision: number; p_expected_new_revision: number }) => {
+    rpc: async (name: string, args?: { expected_version: string; new_data: Record<string, unknown>; p_expected_version: string; p_new_data: Record<string, unknown>; p_kind: string; p_category: string; p_new_name: string; p_icon: string | null; p_color: string | null; p_expected_revision: number; p_expected_new_revision: number; p_display_name: string }) => {
       if (name === "category_appearances_get") return server.offline ? {data:null,error:{message:"offline"}} : {data:structuredClone(server.appearances),error:null};
       if (name === "category_appearance_update" || name === "category_rename_with_appearance") {
         if (!args || server.saveFails) return {data:null,error:{message:"offline"}};
@@ -25,6 +25,12 @@ vi.mock("../src/app/auth", () => ({
         const row={kind:args.p_kind,category,icon_key:args.p_icon,color_key:args.p_color,revision:expected+1};
         server.appearances=[...server.appearances.filter(item => item.kind !== row.kind || item.category !== row.category),row];
         return {data:name === "category_appearance_update" ? [row] : [{version:`${server.version}:none:0`,data:structuredClone(server.data)}],error:null};
+      }
+      if (name === "open_ledger") return {data:[{version:server.version,data:structuredClone(server.data)}],error:null};
+      if (name === "account_set_display_name") {
+        if (Number(args?.p_expected_version) !== server.version) return {data:[],error:null};
+        server.data.displayName = args?.p_display_name; server.version++;
+        return {data:[{version:server.version,display_name:server.data.displayName}],error:null};
       }
       if (name === "family_status") return { data: null, error: null };
       if (name === "family_recurring_status") return { data: null, error: { code: "42501" } };
@@ -549,3 +555,46 @@ it("giữ lựa chọn khi đổi tên và không ghi khi gặp xung đột", as
   expect((await dialog.findByRole("alert")).textContent).toContain("thiết bị khác");
   expect(server.appearances.find(item=>item.category==="Ăn uống mới")?.color_key).toBe("orange");
 }, 20000);
+
+it("đổi tên tài khoản mà không ảnh hưởng các khoản giao dịch", async () => {
+  server.data.entries = [{ id: "old", type: "expense", amount: 100, category: "Ăn uống", note: "", wallet: "cash", date: "2026-11-01" }];
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", {name:"Mở tài khoản"}));
+  await user.click(screen.getByRole("button", {name:"Sửa tên"}));
+  await user.type(screen.getByLabelText("Tên hiển thị"), "Mẹ nhỏ");
+  await user.click(screen.getByRole("button", {name:"Lưu tên"}));
+  await waitFor(() => expect(server.data.displayName).toBe("Mẹ nhỏ"));
+  expect((server.data.entries as {amount:number}[])[0].amount).toBe(100);
+});
+
+it("cập nhật icon và màu trong danh sách đang mở khi phiên khác thay đổi", async () => {
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", {name:"Mở tài khoản"}));
+  await user.click(screen.getByRole("button", {name:"Quản lý danh mục"}));
+  server.appearances = [{kind:"expense", category:"Ăn uống", icon_key:"coffee", color_key:"rose", revision:1}];
+  fireEvent.focus(window);
+  await waitFor(() => {
+    const row = screen.getByRole("button", {name:"Sửa danh mục Ăn uống"}).closest(".category-chip");
+    expect(row?.querySelector(".category-icon svg")?.getAttribute("class")).toContain("coffee");
+  });
+  await user.click(screen.getByRole("button", {name:"Sửa danh mục Ăn uống"}));
+  expect(screen.getByRole("button", {name:"Icon Cà phê"}).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", {name:"Màu Hồng"}).getAttribute("aria-pressed")).toBe("true");
+});
+
+it("không ghi đè tên vừa được thiết bị khác cập nhật", async () => {
+  server.data.displayName = "Tên cũ";
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button", {name:"Mở tài khoản"}));
+  await user.click(screen.getByRole("button", {name:"Sửa tên"}));
+  const input = screen.getByLabelText("Tên hiển thị");
+  await user.clear(input); await user.type(input, "Tên đang nhập");
+  server.data.displayName = "Tên từ thiết bị khác"; server.version++;
+  await user.click(screen.getByRole("button", {name:"Lưu tên"}));
+  expect((await screen.findByRole("alert")).textContent).toContain("đã thay đổi trên thiết bị khác");
+  expect(server.data.displayName).toBe("Tên từ thiết bị khác");
+  expect((input as HTMLInputElement).value).toBe("Tên đang nhập");
+});

@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { FamilyManager, captureFamilyInvitation, type Family } from "../src/app/family";
 
 afterEach(() => { cleanup(); sessionStorage.clear(); history.replaceState(null, "", "/"); vi.restoreAllMocks(); });
-const active: Family = { id:"family", name:"Gia đình nhỏ", role:"owner", status:"active", members:[{userId:"u1",phone:"+84111",role:"owner",status:"active"},{userId:"u2",phone:"+84222",role:"member",status:"active"}] };
+const active: Family = { id:"family", name:"Gia đình nhỏ", role:"owner", status:"active", members:[{userId:"u1",displayName:"Mẹ",role:"owner",status:"active"},{userId:"u2",displayName:"Bố",avatar:"data:image/webp;base64,YQ==",role:"member",status:"active"}] };
 function setup(rpc: ReturnType<typeof vi.fn>, family: Family | null = active) {
   return render(<FamilyManager client={{rpc} as unknown as SupabaseClient} userId="u1" family={family} onFamily={() => {}} personal wallets={[{id:"cash",name:"Tiền mặt"}]} personalVersion={() => 7} disabled={false} refresh={async () => {}} switchWorkspace={() => {}} />);
 }
@@ -32,4 +32,12 @@ it("chuyển ví dùng phiên bản hiện tại và lựa chọn riêng tư c�
   await user.selectOptions(screen.getByLabelText("Quyền xem"), "shared");
   await user.click(screen.getByRole("button", {name:"Chuyển ví đã chọn"}));
   await waitFor(() => expect(rpc).toHaveBeenCalledWith("family_transfer_wallets", { expected_personal_version:7,expected_family_version:9,choices:[{walletId:"cash",ownerId:"u2",visibility:"shared"}] }));
+});
+
+it("hiển thị tên và ảnh thành viên thay cho số điện thoại", async () => {
+  const rpc = vi.fn(async () => ({data:active,error:null})); setup(rpc);
+  expect(await screen.findByText("Mẹ (Bạn)")).toBeTruthy();
+  expect(screen.getByText("Bố")).toBeTruthy();
+  expect(document.querySelector('.member-avatar img')?.getAttribute('src')).toBe('data:image/webp;base64,YQ==');
+  expect(screen.queryByText('+84222')).toBeNull();
 });
