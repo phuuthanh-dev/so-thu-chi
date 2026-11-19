@@ -598,3 +598,48 @@ it("không ghi đè tên vừa được thiết bị khác cập nhật", async 
   expect(server.data.displayName).toBe("Tên từ thiết bị khác");
   expect((input as HTMLInputElement).value).toBe("Tên đang nhập");
 });
+
+it("xem chi tiêu theo ngày độc lập với tháng và chỉ tính khoản chi", async () => {
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  server.data.entries = [
+    {id:"e1",type:"expense",amount:40000,category:"Ăn uống",note:"Bữa sáng",wallet:"cash",date:today},
+    {id:"e2",type:"expense",amount:60000,category:"Khác",note:"Mua đồ",wallet:"cash",date:today},
+    {id:"i1",type:"income",amount:900000,category:"Lương",note:"Lương",wallet:"cash",date:today},
+    {id:"old",type:"expense",amount:70000,category:"Khác",note:"Khoản cũ",wallet:"cash",date:"2024-12-31"},
+  ];
+  const user = userEvent.setup(); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  const daily = within(screen.getByRole("region", {name:"Chi tiêu theo ngày"}));
+  expect((daily.getByLabelText("Ngày") as HTMLInputElement).value).toBe(today);
+  expect(daily.getByText(/100\.000/)).toBeTruthy();
+  expect(daily.getByText("2 khoản chi")).toBeTruthy();
+  await user.click(daily.getByText("Xem 2 khoản chi"));
+  expect(daily.getByRole("button", {name:/Bữa sáng/})).toBeTruthy();
+  expect(daily.getByRole("button", {name:/Mua đồ/})).toBeTruthy();
+  expect(daily.queryByRole("button", {name:/Lương/})).toBeNull();
+  fireEvent.change(daily.getByLabelText("Ngày"), {target:{value:"2024-12-31"}});
+  expect(screen.getByRole("region", {name:"Chi tiêu theo ngày"}).querySelector(".daily-total strong")?.textContent).toContain("70.000");
+  expect(daily.getByRole("button", {name:/Khoản cũ/})).toBeTruthy();
+  await user.click(daily.getByRole("button", {name:"Ngày sau"}));
+  expect((daily.getByLabelText("Ngày") as HTMLInputElement).value).toBe("2025-01-01");
+  expect(daily.getByText("Chưa có khoản chi trong ngày này.")).toBeTruthy();
+  await user.click(daily.getByRole("button", {name:"Hôm nay"}));
+  expect((daily.getByLabelText("Ngày") as HTMLInputElement).value).toBe(today);
+  await user.click(screen.getByRole("button", {name:"Tháng trước"}));
+  expect(daily.getByText(/100\.000/)).toBeTruthy();
+  expect(server.version).toBe(0);
+}, 20000);
+
+it("tổng chi trong ngày cập nhật sau khi xóa giao dịch", async () => {
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  server.data.entries = [{id:"e1",type:"expense",amount:25000,category:"Ăn uống",note:"Ăn trưa",wallet:"cash",date:today}];
+  const user = userEvent.setup(); vi.spyOn(window,"confirm").mockReturnValue(true); render(<Page />);
+  await screen.findByText("Đã đồng bộ");
+  const daily = within(screen.getByRole("region", {name:"Chi tiêu theo ngày"}));
+  await user.click(daily.getByText("Xem 1 khoản chi"));
+  await user.click(daily.getByRole("button", {name:"Xóa giao dịch"}));
+  await waitFor(() => expect(daily.getByText("Chưa có khoản chi trong ngày này.")).toBeTruthy());
+  expect(daily.getByText(/0\s*₫/)).toBeTruthy();
+});

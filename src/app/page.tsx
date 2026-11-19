@@ -82,10 +82,10 @@ type Data = {
   avatar?: string | null;
   displayName?: string | null;
 };
-const dateISO = () => {
-  const d = new Date();
+const localDateISO = (d: Date) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+const dateISO = () => localDateISO(new Date());
 const money = (n: number) => new Intl.NumberFormat("vi-VN").format(n) + "\u00a0₫";
 const uid = () =>
   globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
@@ -159,6 +159,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   const [data, setData] = useState<Data | null>(null),
     [tab, setTab] = useState("overview"),
     [month, setMonth] = useState(""),
+    [dailyDate, setDailyDate] = useState(""),
     [modal, setModal] = useState<
       "entry" | "wallet" | "budget" | "category" | "rule" | "avatar" | null
     >(null),
@@ -347,6 +348,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     Promise.resolve().then(() => {
       const today = dateISO();
       setMonth(today.slice(0, 7));
+      setDailyDate(today);
       setDate(today);
       if (sessionStorage.getItem("nha-minh-family-invitation")) setTab("family");
       updateDrafts();
@@ -458,6 +460,15 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
         .sort((a, b) => b.date.localeCompare(a.date)) || [],
     [data, month],
   );
+  const dailyExpenses = (data?.entries || []).filter(e => e.type === "expense" && e.date === dailyDate);
+  const dailyTotal = dailyExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const changeDay = (delta: number) => {
+    if (!dailyDate) return;
+    const [year, month, day] = dailyDate.split("-").map(Number);
+    const next = new Date(year, month - 1, day, 12);
+    next.setDate(next.getDate() + delta);
+    setDailyDate(localDateISO(next));
+  };
   const income = entries
       .filter((e) => e.type === "income")
       .reduce((s, e) => s + e.amount, 0),
@@ -930,6 +941,22 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <Plus size={18} aria-hidden="true" /> <span className="add-transaction-label">Thêm giao dịch</span>
             </button>
           </div>
+          {tab === "overview" && (
+            <section className="card daily-expenses" aria-labelledby="daily-expenses-title">
+              <div className="daily-expenses-header">
+                <div><div className="card-kicker">THEO DÕI MỖI NGÀY</div><h2 id="daily-expenses-title">Chi tiêu theo ngày</h2></div>
+                <div className="daily-total" aria-live="polite"><strong>{dailyDate ? money(dailyTotal) : "Chọn ngày"}</strong><span>{dailyDate ? `${dailyExpenses.length} khoản chi` : "để xem chi tiêu"}</span></div>
+              </div>
+              <div className="daily-date-controls">
+                <label htmlFor="daily-expense-date">Ngày</label>
+                <button type="button" className="daily-day-button" aria-label="Ngày trước" disabled={!dailyDate} onClick={() => changeDay(-1)}><ChevronLeft size={18} aria-hidden="true" /></button>
+                <input id="daily-expense-date" type="date" value={dailyDate} onChange={event => setDailyDate(event.target.value)} />
+                <button type="button" className="daily-day-button" aria-label="Ngày sau" disabled={!dailyDate} onClick={() => changeDay(1)}><ChevronRight size={18} aria-hidden="true" /></button>
+                <button type="button" className="daily-today-button" onClick={() => setDailyDate(dateISO())}>Hôm nay</button>
+              </div>
+              {dailyDate && (dailyExpenses.length ? <details className="daily-details"><summary>Xem {dailyExpenses.length} khoản chi</summary>{renderTransactionList(dailyExpenses)}</details> : <p className="daily-empty">Chưa có khoản chi trong ngày này.</p>)}
+            </section>
+          )}
           {!["settings", "wallets", "recurring", "family"].includes(tab) && (
             <div className="period-row">
               <div className="period">
