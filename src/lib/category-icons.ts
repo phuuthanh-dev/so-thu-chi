@@ -48,3 +48,54 @@ export function categoryAppearance(name: string, kind: CategoryKind): CategoryAp
   for (const char of `${kind}:${normalized}`) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   return fallback[hash % fallback.length];
 }
+
+export type CategoryAppearanceRecord = {
+  kind: CategoryKind;
+  category: string;
+  icon_key: string | null;
+  color_key: string | null;
+  revision: number;
+};
+export const categoryIconChoices = [
+  { key: "food", label: "Ăn uống", icon: UtensilsCrossed },
+  { key: "coffee", label: "Cà phê", icon: Coffee },
+  { key: "shopping", label: "Mua sắm", icon: ShoppingBag },
+  { key: "travel", label: "Du lịch", icon: Plane },
+  { key: "transport", label: "Đi lại", icon: CarFront },
+  { key: "home", label: "Nhà cửa", icon: House },
+  { key: "health", label: "Sức khỏe", icon: HeartPulse },
+  { key: "education", label: "Giáo dục", icon: GraduationCap },
+  { key: "children", label: "Trẻ em", icon: Baby },
+  { key: "entertainment", label: "Giải trí", icon: Ticket },
+  { key: "gift", label: "Quà tặng", icon: Gift },
+  { key: "beauty", label: "Làm đẹp", icon: Sparkles },
+  { key: "salary", label: "Công việc", icon: BriefcaseBusiness },
+  { key: "income", label: "Thu nhập", icon: HandCoins },
+  { key: "investment", label: "Đầu tư", icon: TrendingUp },
+  { key: "electricity", label: "Điện", icon: Lightbulb },
+  { key: "water", label: "Nước", icon: Droplets },
+  { key: "internet", label: "Internet", icon: Wifi },
+  { key: "tag", label: "Nhãn", icon: Tag },
+  { key: "other", label: "Khác", icon: CircleEllipsis },
+] as const;
+export const categoryColorChoices = [
+  { key: "rose", label: "Hồng", color: "#a44270", background: "#fbeaf2" },
+  { key: "red", label: "Đỏ", color: "#b1405a", background: "#ffedf0" },
+  { key: "orange", label: "Cam", color: "#b34f36", background: "#fff0e9" },
+  { key: "amber", label: "Vàng", color: "#98691b", background: "#fff3d6" },
+  { key: "brown", label: "Nâu", color: "#91612d", background: "#fff2df" },
+  { key: "green", label: "Xanh lá", color: "#337857", background: "#eaf6ed" },
+  { key: "teal", label: "Xanh ngọc", color: "#277e70", background: "#e6f6f3" },
+  { key: "cyan", label: "Xanh biển nhạt", color: "#267e9b", background: "#e5f6fa" },
+  { key: "blue", label: "Xanh dương", color: "#326c96", background: "#e9f4fa" },
+  { key: "indigo", label: "Xanh chàm", color: "#4a68a2", background: "#edf2ff" },
+  { key: "purple", label: "Tím", color: "#7655a3", background: "#f3edfc" },
+  { key: "mauve", label: "Tím xám", color: "#80627f", background: "#f5edf5" },
+] as const;
+
+export function customizedCategoryAppearance(name: string, kind: CategoryKind, choice?: Pick<CategoryAppearanceRecord, "icon_key" | "color_key"> | null): CategoryAppearance {
+  const automatic = categoryAppearance(name, kind);
+  const icon = categoryIconChoices.find((item) => item.key === choice?.icon_key)?.icon || automatic.icon;
+  const color = categoryColorChoices.find((item) => item.key === choice?.color_key);
+  return { icon, color: color?.color || automatic.color, background: color?.background || automatic.background };
+}

@@ -28,3 +28,12 @@ describe("biểu tượng danh mục", () => {
     expect(document.querySelector('.category-icon[aria-hidden="true"] svg.lucide-utensils-crossed')).toBeTruthy();
   });
 });
+
+it("áp dụng icon và màu người dùng chọn độc lập, an toàn với giá trị không nhận diện", async () => {
+  const { customizedCategoryAppearance, categoryColorChoices } = await import("../src/lib/category-icons");
+  const chosen = customizedCategoryAppearance("Ăn uống", "expense", {icon_key:"gift",color_key:"blue"});
+  expect(chosen.icon).toBe(Gift);
+  expect(chosen.color).toBe(categoryColorChoices.find(item => item.key === "blue")?.color);
+  expect(customizedCategoryAppearance("Ăn uống", "expense", {icon_key:null,color_key:"blue"}).icon).toBe(UtensilsCrossed);
+  expect(categoryAppearance("Ăn uống", "expense")).toMatchObject(customizedCategoryAppearance("Ăn uống", "expense", {icon_key:"unknown",color_key:"unknown"}));
+});

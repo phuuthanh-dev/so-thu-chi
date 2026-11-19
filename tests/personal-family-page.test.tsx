@@ -4,11 +4,14 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 type WalletFixture = {id: string; name: string; balance: number; ownerId?: string; visibility?: string; note?: string};
 type EntryFixture = {id: string; wallet: string};
+type AppearanceFixture = {kind:string;category:string;icon_key:string | null;color_key:string | null;revision:number};
 type DataFixture = {wallets: WalletFixture[]; entries: EntryFixture[]; rules: unknown[]; budgets: Record<string, number>; categories: {expense: string[]; income: string[]}};
-const store = vi.hoisted(() => ({ personal: {} as DataFixture, family: {} as DataFixture, familyVersion: 0, personalVersion: 0 }));
+const store = vi.hoisted(() => ({ personal: {} as DataFixture, family: {} as DataFixture, appearances: [] as AppearanceFixture[], familyVersion: 0, personalVersion: 0 }));
 vi.mock("../src/app/auth", () => {
   const clone = <T,>(value: T) => structuredClone(value);
-  const client = { rpc: async (name: string, args?: {new_data: DataFixture}): Promise<{data: unknown; error: null}> => {
+  const client = { rpc: async (name: string, args?: {new_data: DataFixture; p_kind:string; p_category:string; p_icon:string | null; p_color:string | null; p_expected_revision:number}): Promise<{data: unknown; error: null}> => {
+    if (name === "category_appearances_get") return {data:clone(store.appearances),error:null};
+    if (name === "category_appearance_update") { if (!args) throw new Error("missing appearance"); const row={kind:args.p_kind,category:args.p_category,icon_key:args.p_icon,color_key:args.p_color,revision:args.p_expected_revision+1}; store.appearances=[...store.appearances.filter(item=>item.kind!==row.kind || item.category!==row.category),row]; return {data:[row],error:null}; }
     if (name === "family_status") return {data:{id:"family1",name:"Nhà mình",role:"owner",status:"active",members:[{userId:"u1",phone:"Số 1",role:"owner",status:"active"}]},error:null};
     if (name === "recurring_status" || name === "family_recurring_status") return {data:[],error:null};
     if (name === "personal_combined_open") { const owned=store.family.wallets.filter(w => w.ownerId === "u1"); return {data:[{version:`${store.personalVersion}:none:${store.familyVersion}`,data:{...clone(store.personal),wallets:[...clone(store.personal.wallets),...clone(owned)],entries:[...clone(store.personal.entries),...clone(store.family.entries.filter(e => owned.some(w => w.id === e.wallet)))],rules:[]}}],error:null}; }
@@ -30,7 +33,7 @@ vi.mock("../src/app/auth", () => {
 });
 import Page from "../src/app/page";
 beforeEach(() => {
-  localStorage.clear(); sessionStorage.clear(); store.personalVersion=0; store.familyVersion=0;
+  localStorage.clear(); sessionStorage.clear(); store.appearances=[]; store.personalVersion=0; store.familyVersion=0;
   const categories={expense:["Ăn uống"],income:["Lương"]};
   store.personal={entries:[],wallets:[{id:"cash",name:"Ví cá nhân",balance:100}],budgets:{},rules:[],categories};
   store.family={entries:[],wallets:[{id:"11111111-1111-4111-8111-111111111111",name:"Ví gia đình của tôi",balance:200,ownerId:"u1",visibility:"shared",note:""},{id:"22222222-2222-4222-8222-222222222222",name:"Ví của người kia",balance:300,ownerId:"u2",visibility:"shared",note:""}],budgets:{},rules:[],categories};
@@ -58,3 +61,25 @@ it("sidebar switches modes and family wallet edits from personal show in family"
   await user.click(screen.getAllByRole("button",{name:"Ví của tôi"})[0]);
   expect(await screen.findByText("Ví chung đã sửa")).toBeTruthy();
 },15000);
+
+
+it("icon và màu theo tài khoản được giữ khi chuyển sang sổ gia đình",async()=>{
+  const user=userEvent.setup(); render(<Page />); await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button",{name:"Mở tài khoản"}));
+  await user.click(screen.getByRole("button",{name:"Quản lý danh mục"}));
+  let dialog=within(screen.getByRole("dialog"));
+  await user.click(dialog.getByRole("button",{name:"Sửa danh mục Ăn uống"}));
+  await user.click(dialog.getByRole("button",{name:"Icon Quà tặng"}));
+  await user.click(dialog.getByRole("button",{name:"Màu Tím"}));
+  await user.click(dialog.getByRole("button",{name:"Lưu thay đổi"}));
+  await waitFor(()=>expect(store.appearances[0]?.icon_key).toBe("gift"));
+  await user.click(dialog.getByRole("button",{name:"Đóng"}));
+  await user.click(screen.getByRole("button",{name:"Chuyển sang sổ gia đình"}));
+  await screen.findByRole("button",{name:"Nhà mình"});
+  await user.click(screen.getByRole("button",{name:"Mở tài khoản"}));
+  await user.click(screen.getByRole("button",{name:"Quản lý danh mục"}));
+  dialog=within(screen.getByRole("dialog"));
+  await user.click(dialog.getByRole("button",{name:"Sửa danh mục Ăn uống"}));
+  expect(dialog.getByRole("button",{name:"Icon Quà tặng"}).getAttribute("aria-pressed")).toBe("true");
+  expect(dialog.getByRole("button",{name:"Màu Tím"}).getAttribute("aria-pressed")).toBe("true");
+},20000);

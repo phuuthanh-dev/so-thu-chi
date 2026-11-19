@@ -8,7 +8,8 @@ import { PetalFall } from "./petals";
 import { AvatarEditor } from "./avatar-editor";
 import { Report } from "./report";
 import { CategoryIcon } from "./category-icon";
-import { categoryAppearance } from "@/lib/category-icons";
+import { CategoryAppearancePicker } from "./category-appearance-picker";
+import { customizedCategoryAppearance, type CategoryAppearanceRecord } from "@/lib/category-icons";
 import { FamilyManager, captureFamilyInvitation, type Family } from "./family";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { AuthGate } from "./auth";
@@ -171,6 +172,12 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     [categoryEditName, setCategoryEditName] = useState(""),
     [categoryEditError, setCategoryEditError] = useState(""),
     [ruleId, setRuleId] = useState<string | null>(null);
+  const [appearances, setAppearances] = useState<CategoryAppearanceRecord[]>([]);
+  const [appearanceReady, setAppearanceReady] = useState(false);
+  const [appearanceError, setAppearanceError] = useState("");
+  const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
+  const [selectedColor, setSelectedColor] = useState<string | null>(null);
+  const [editingAppearanceRevision, setEditingAppearanceRevision] = useState(0);
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -226,6 +233,33 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   useEffect(() => {
     modalRef.current = modal;
   }, [modal]);
+  const appearanceSequence = useRef(0);
+  const loadAppearances = useCallback(async (force = false) => {
+    if (!force && (busyRef.current || modalRef.current === "category")) return;
+    const sequence = appearanceSequence.current;
+    try {
+      const result = await client.rpc("category_appearances_get");
+      if (result.error || !Array.isArray(result.data)) throw result.error || new Error("Missing appearance data");
+      if (!mountedRef.current || sequence !== appearanceSequence.current) return;
+      const rows = (result.data as CategoryAppearanceRecord[]).filter(item => (item.kind === "expense" || item.kind === "income") && typeof item.category === "string" && Number.isSafeInteger(Number(item.revision))).map(item => ({...item, revision: Number(item.revision)}));
+      setAppearances(rows); setAppearanceReady(true); setAppearanceError("");
+    } catch {
+      if (mountedRef.current && sequence === appearanceSequence.current) setAppearanceError("Không tải được icon và màu đã chọn. Hãy kiểm tra kết nối rồi thử lại.");
+    }
+  }, [client]);
+  useEffect(() => {
+    void Promise.resolve().then(() => loadAppearances(true));
+    const timer = window.setInterval(() => void loadAppearances(), 20000);
+    const onFocus = () => void loadAppearances();
+    window.addEventListener("focus", onFocus);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
+  }, [loadAppearances]);
+  const appearanceOf = (categoryName: string, categoryKind: Kind) => appearances.find(item => item.kind === categoryKind && item.category === categoryName);
+  const rememberAppearance = (row: CategoryAppearanceRecord) => {
+    appearanceSequence.current++;
+    setAppearances(previous => [...previous.filter(item => !(item.kind === row.kind && item.category === row.category)), row]);
+    setAppearanceReady(true); setAppearanceError("");
+  };
   const switchLedger = (next: Family | null) => {
     if (busyRef.current || dirtyRef.current || modalRef.current) { alert("Hãy lưu hoặc xử lý bản nháp trước khi chuyển sổ."); return; }
     setWorkspace(next);
@@ -498,26 +532,46 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   const avatar = data.avatar && /^data:image\/(webp|jpeg);base64,/.test(data.avatar) ? data.avatar : null;
   const renderAvatar = () => avatar ? <Image src={avatar} alt="" width={40} height={40} unoptimized /> : "M";
   const closeModal = () => { setModal(null); setAvatarFile(null); setAvatarError(""); setEditingCategory(null); setCategoryEditError(""); };
-  const renameCategory = () => {
-    if (editingCategory === null) return;
+  const saveCategoryEdit = async () => {
+    if (editingCategory === null || busyRef.current || version.current === null) return;
+    if (dirtyRef.current) { setCategoryEditError("Hãy xử lý bản nháp chưa lưu trước khi thay đổi danh mục."); return; }
+    if (!appearanceReady) { setCategoryEditError("Chưa tải được icon và màu đã lưu. Hãy thử tải lại trước khi chỉnh sửa."); return; }
+    const oldName = editingCategory;
     const name = categoryEditName.trim();
     if (!name) { setCategoryEditError("Vui lòng nhập tên danh mục."); return; }
-    if (name === editingCategory) { setEditingCategory(null); setCategoryEditError(""); return; }
     const normalized = (value: string) => value.normalize("NFC").toLocaleLowerCase("vi-VN");
-    if (data.categories[kind].some((item) => item !== editingCategory && normalized(item) === normalized(name))) {
-      setCategoryEditError("Tên danh mục đã tồn tại. Vui lòng chọn tên khác.");
-      return;
+    if (data.categories[kind].some((item) => item !== oldName && normalized(item) === normalized(name))) {
+      setCategoryEditError("Tên danh mục đã tồn tại. Vui lòng chọn tên khác."); return;
     }
-    const previouslyUsed = data.entries.some((item) => item.type === kind && item.category === name)
-      || data.rules.some((item) => item.type === kind && item.category === name);
+    const renamed = name !== oldName;
+    const previouslyUsed = renamed && (data.entries.some((item) => item.type === kind && item.category === name) || data.rules.some((item) => item.type === kind && item.category === name));
     if (previouslyUsed && !confirm(`Tên “${name}” đã được dùng trong giao dịch hoặc định kỳ cũ. Đổi tên sẽ gộp các khoản này vào cùng danh mục trong báo cáo. Bạn có muốn tiếp tục?`)) return;
-    if ((data.entries.some(item => item.type === kind && item.category === editingCategory && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared")) || data.rules.some(item => item.type === kind && item.category === editingCategory && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared"))) && !confirm("Đổi tên cũng cập nhật các giao dịch và lịch định kỳ cùng danh mục trong ví chia sẻ mà thành viên khác có thể xem. Tiếp tục?")) return;
-    if (save({
-      ...data,
-      categories: { ...data.categories, [kind]: data.categories[kind].map((item) => item === editingCategory ? name : item) },
-      entries: data.entries.map((item) => item.type === kind && item.category === editingCategory ? { ...item, category: name } : item),
-      rules: data.rules.map((item) => item.type === kind && item.category === editingCategory ? { ...item, category: name } : item),
-    })) { setEditingCategory(null); setCategoryEditError(""); }
+    if (renamed && (data.entries.some(item => item.type === kind && item.category === oldName && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared")) || data.rules.some(item => item.type === kind && item.category === oldName && data.wallets.some(w => w.id === item.wallet && w.visibility === "shared"))) && !confirm("Đổi tên cũng cập nhật các giao dịch và lịch định kỳ cùng danh mục trong ví chia sẻ mà thành viên khác có thể xem. Tiếp tục?")) return;
+    setCategoryEditError(""); busyRef.current = true; setBusy(true);
+    try {
+      const targetRevision = renamed ? appearanceOf(name, kind)?.revision || 0 : editingAppearanceRevision;
+      const result = renamed
+        ? await client.rpc("category_rename_with_appearance", {
+            p_mode: workspace ? "family" : "personal", p_expected_version: String(version.current),
+            p_new_data: { ...data,
+              categories: { ...data.categories, [kind]: data.categories[kind].map(item => item === oldName ? name : item) },
+              entries: data.entries.map(item => item.type === kind && item.category === oldName ? { ...item, category: name } : item),
+              rules: data.rules.map(item => item.type === kind && item.category === oldName ? { ...item, category: name } : item),
+            },
+            p_kind: kind, p_old_name: oldName, p_new_name: name, p_icon: selectedIcon, p_color: selectedColor,
+            p_expected_old_revision: editingAppearanceRevision, p_expected_new_revision: targetRevision,
+          })
+        : await client.rpc("category_appearance_update", {p_mode:workspace ? "family" : "personal",p_kind:kind,p_category:name,p_icon:selectedIcon,p_color:selectedColor,p_expected_revision:editingAppearanceRevision});
+      if (result.error) throw result.error;
+      if (!result.data?.[0]) throw {code:"40001"};
+      if (renamed) { version.current = workspace ? Number(result.data[0].version) : String(result.data[0].version); setData(result.data[0].data as Data); }
+      rememberAppearance({kind,category:name,icon_key:selectedIcon,color_key:selectedColor,revision:targetRevision+1});
+      setEditingCategory(null); setCategoryEditError("");
+    } catch (error) {
+      setCategoryEditError((error as {code?: string})?.code === "40001"
+        ? "Danh mục hoặc giao diện đã thay đổi trên thiết bị khác. Hãy tải lại rồi thử lại."
+        : "Chưa xác nhận được thay đổi. Hãy kiểm tra kết nối và tải lại trước khi thử lại.");
+    } finally { busyRef.current = false; setBusy(false); }
   };
   const changeAvatar = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
@@ -561,7 +615,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
       {items.length ? (
         items.map((e) => (
           <div className="transaction-row" key={e.id}>
-            <CategoryIcon name={e.category} kind={e.type} />
+            <CategoryIcon name={e.category} kind={e.type} choice={appearanceOf(e.category,e.type)} />
             <button
               className="transaction-name"
               onClick={() => openEntry(e.type, e)}
@@ -704,7 +758,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 ? "Đang lưu"
                 : syncError
                   ? "Chưa lưu"
-                  : loadError
+                  : loadError || appearanceError
                     ? "Chưa đồng bộ"
                     : "Đã đồng bộ"}
             </span>
@@ -725,6 +779,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <button onClick={() => void refresh()}>Thử kết nối lại</button>
             </div>
           )}
+          {appearanceError && <div className="sync-error" role="status"><span>{appearanceError} Icon hiển thị có thể chưa mới nhất.</span><button onClick={() => void loadAppearances(true)}>Tải lại icon</button></div>}
           {recurringError && (
             <div className="sync-error" role="alert">
               <span>{recurringError}</span>
@@ -977,13 +1032,13 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     visibleBreakdown(breakdown, false).map(
                       ([name, value]) => (
                         <div className="category-row" key={name}>
-                          <CategoryIcon name={name} kind="expense" />
+                          <CategoryIcon name={name} kind="expense" choice={appearanceOf(name,"expense")} />
                           <span className="category-name">{name}</span>
                           <div className="mini-progress">
                             <div
                               style={{
                                 width: `${expense ? (value / expense) * 100 : 0}%`,
-                                background: categoryAppearance(name, "expense").color,
+                                background: customizedCategoryAppearance(name, "expense", appearanceOf(name,"expense")).color,
                               }}
                             />
                           </div>
@@ -1036,7 +1091,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
             </>
           )}
           {tab === "family" && <FamilyManager client={client} userId={user.id} family={family} onFamily={setFamily} personal={!workspace} wallets={data.wallets.filter(item => !item.ownerId)} personalVersion={() => typeof version.current === "string" ? Number(version.current.split(":")[0]) : version.current} disabled={busy || !!syncError} refresh={() => refresh(true)} switchWorkspace={switchLedger} />}
-          {tab === "reports" && <Report entries={data.entries} month={month} onSelectMonth={setMonth} />}
+          {tab === "reports" && <Report entries={data.entries} month={month} onSelectMonth={setMonth} appearances={appearances} />}
           {tab === "transactions" && (
             <section className="card full-card">
               <div className="card-heading">
@@ -1315,7 +1370,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <div className="setting-row">
                 <div>
                   <strong>Danh mục</strong>
-                  <p>Thêm, đổi tên hoặc xóa danh mục thu và chi.</p>
+                  <p>Thêm, đổi tên, chọn icon và màu hoặc xóa danh mục thu và chi.</p>
                 </div>
                 <button
                   className="outline-btn"
@@ -1554,7 +1609,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 <label>
                   Danh mục <span>*</span>
                   <div className="category-select">
-                    {category && <CategoryIcon name={category} kind={kind} />}
+                    {category && <CategoryIcon name={category} kind={kind} choice={appearanceOf(category,kind)} />}
                   <select
                     required
                     value={category}
@@ -1683,7 +1738,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (editingCategory !== null) { renameCategory(); return; }
+                  if (editingCategory !== null) { void saveCategoryEdit(); return; }
                   const c = newCategory.trim();
                   if (!c || data.categories[kind].includes(c)) return;
                   if (
@@ -1714,24 +1769,26 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     Thu nhập
                   </button>
                 </div>
-                <p className="modal-desc category-delete-hint">Đổi tên sẽ cập nhật giao dịch và định kỳ. Khi xóa, dữ liệu cũ vẫn được giữ.</p>
+                <p className="modal-desc category-delete-hint">Chọn Sửa để đổi tên, icon và màu. Khi xóa, giao dịch cũ vẫn được giữ.</p>
+                {appearanceError && <p className="appearance-status" role="status">{appearanceError} <button type="button" className="text-link" onClick={() => void loadAppearances(true)}>Thử lại</button></p>}
                 <div className="category-chips">
                   {data.categories[kind].map((c) => (
                     editingCategory === c ? (
                       <div className="category-edit" key={c}>
                         <label htmlFor="category-edit-name">Đổi tên “{c}”</label>
                         <input id="category-edit-name" ref={categoryEditInputRef} value={categoryEditName} aria-invalid={!!categoryEditError} aria-describedby={categoryEditError ? "category-edit-error" : undefined} onChange={(e) => { setCategoryEditName(e.target.value); setCategoryEditError(""); }} />
-                        {categoryEditError && <p id="category-edit-error" className="category-edit-error" role="alert">{categoryEditError}</p>}
+                        <CategoryAppearancePicker name={categoryEditName.trim() || c} kind={kind} icon={selectedIcon} color={selectedColor} onIcon={setSelectedIcon} onColor={setSelectedColor} />
+                        {categoryEditError && <><p id="category-edit-error" className="category-edit-error" role="alert">{categoryEditError}</p><button type="button" className="text-link" onClick={() => { setEditingCategory(null); setCategoryEditError(""); void refresh(true); void loadAppearances(true); }}>Tải lại dữ liệu</button></>}
                         <div className="category-edit-actions">
                           <button type="button" className="outline-btn" onClick={() => { setEditingCategory(null); setCategoryEditError(""); }}>Hủy</button>
-                          <button type="submit" className="primary-btn">Lưu tên</button>
+                          <button type="submit" className="primary-btn" disabled={!appearanceReady || busy}>Lưu thay đổi</button>
                         </div>
                       </div>
                     ) : (
                     <div className="category-chip" key={c}>
-                      <CategoryIcon name={c} kind={kind} />
+                      <CategoryIcon name={c} kind={kind} choice={appearanceOf(c,kind)} />
                       <span className="category-chip-name">{c}</span>
-                      <button type="button" className="category-edit-button" aria-label={`Sửa danh mục ${c}`} disabled={editingCategory !== null} onClick={() => { setEditingCategory(c); setCategoryEditName(c); setCategoryEditError(""); }}><Pencil size={16} aria-hidden="true" /></button>
+                      <button type="button" className="category-edit-button" aria-label={`Sửa danh mục ${c}`} disabled={editingCategory !== null} onClick={() => { const current = appearanceOf(c,kind); setSelectedIcon(current?.icon_key || null); setSelectedColor(current?.color_key || null); setEditingAppearanceRevision(current?.revision || 0); setEditingCategory(c); setCategoryEditName(c); setCategoryEditError(""); }}><Pencil size={16} aria-hidden="true" /></button>
                       <button type="button" className="category-delete" aria-label={`Xóa danh mục ${c}`} disabled={editingCategory !== null} onClick={() => {
                         const recurring = data.rules.some((rule) => rule.type === kind && rule.category === c);
                         const message = `Xóa danh mục “${c}” khỏi danh sách lựa chọn? Giao dịch đã ghi sẽ được giữ nguyên.${recurring ? " Giao dịch định kỳ đang dùng danh mục này vẫn tiếp tục hoạt động." : ""}`;

@@ -4,12 +4,28 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { prepareAvatar } from "../src/lib/avatar";
 
-const server = vi.hoisted(() => ({ data: {} as Record<string, unknown>, version: 0, offline: false, saveFails: false }));
+type AppearanceFixture = {kind: string; category: string; icon_key: string | null; color_key: string | null; revision: number};
+const server = vi.hoisted(() => ({ data: {} as Record<string, unknown>, appearances: [] as AppearanceFixture[], version: 0, offline: false, saveFails: false }));
 vi.mock("../src/lib/avatar", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/avatar")>()), prepareAvatar: vi.fn() }));
 vi.mock("../src/app/avatar-editor", () => ({ AvatarEditor: ({ onSave, onCancel, error }: { onSave: (crop: { zoom: number; x: number; y: number }) => void; onCancel: () => void; error: string }) => <div>{error && <p role="alert">{error}</p>}<button onClick={() => onSave({ zoom: 2, x: 25, y: 75 })}>Lưu ảnh</button><button onClick={onCancel}>Hủy</button></div> }));
 vi.mock("../src/app/auth", () => ({
   AuthGate: ({ children }: { children: (client: unknown, user: unknown) => React.ReactNode }) => children({
-    rpc: async (name: string, args?: { expected_version: string; new_data: Record<string, unknown> }) => {
+    rpc: async (name: string, args?: { expected_version: string; new_data: Record<string, unknown>; p_expected_version: string; p_new_data: Record<string, unknown>; p_kind: string; p_category: string; p_new_name: string; p_icon: string | null; p_color: string | null; p_expected_revision: number; p_expected_new_revision: number }) => {
+      if (name === "category_appearances_get") return server.offline ? {data:null,error:{message:"offline"}} : {data:structuredClone(server.appearances),error:null};
+      if (name === "category_appearance_update" || name === "category_rename_with_appearance") {
+        if (!args || server.saveFails) return {data:null,error:{message:"offline"}};
+        const category = name === "category_appearance_update" ? args.p_category : args.p_new_name;
+        const expected = name === "category_appearance_update" ? args.p_expected_revision : args.p_expected_new_revision;
+        const prior = server.appearances.find(item => item.kind === args.p_kind && item.category === category);
+        if ((prior?.revision || 0) !== expected) return {data:null,error:{code:"40001"}};
+        if (name === "category_rename_with_appearance") {
+          if (args.p_expected_version !== `${server.version}:none:0`) return {data:[],error:null};
+          server.data=structuredClone(args.p_new_data); server.version++;
+        }
+        const row={kind:args.p_kind,category,icon_key:args.p_icon,color_key:args.p_color,revision:expected+1};
+        server.appearances=[...server.appearances.filter(item => item.kind !== row.kind || item.category !== row.category),row];
+        return {data:name === "category_appearance_update" ? [row] : [{version:`${server.version}:none:0`,data:structuredClone(server.data)}],error:null};
+      }
       if (name === "family_status") return { data: null, error: null };
       if (name === "family_recurring_status") return { data: null, error: { code: "42501" } };
       if (name === "recurring_status") return { data: [], error: null };
@@ -29,7 +45,7 @@ import Page from "../src/app/page";
 
 beforeEach(() => {
   vi.mocked(prepareAvatar).mockReset();
-  localStorage.clear(); server.version = 0; server.offline = false; server.saveFails = false;
+  localStorage.clear(); server.appearances = []; server.version = 0; server.offline = false; server.saveFails = false;
   server.data = { entries: [], wallets: [{ id: "cash", name: "Tiền mặt", balance: 0 }], budgets: {}, rules: [], categories: { expense: ["Ăn uống", "Khác"], income: ["Lương"] } };
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -407,7 +423,7 @@ it("đổi tên danh mục chi đồng bộ lịch sử và định kỳ nhưng 
   const name = dialog.getByLabelText("Đổi tên “Ăn uống”");
   expect(document.activeElement).toBe(name);
   await user.clear(name); await user.type(name, "Ăn uống gia đình");
-  await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  await user.click(dialog.getByRole("button", { name: "Lưu thay đổi" }));
   await waitFor(() => expect(server.version).toBe(1));
   expect((server.data.categories as {expense:string[];income:string[]}).expense).toEqual(["Ăn uống gia đình", "Khác"]);
   expect((server.data.categories as {expense:string[];income:string[]}).income).toEqual(["Ăn uống"]);
@@ -435,9 +451,9 @@ it("từ chối tên trống hoặc trùng, cho phép hủy và đổi tên danh
   const dialog = within(screen.getByRole("dialog"));
   await user.click(dialog.getByRole("button", { name: "Sửa danh mục Ăn uống" }));
   let name = dialog.getByLabelText("Đổi tên “Ăn uống”");
-  await user.clear(name); await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  await user.clear(name); await user.click(dialog.getByRole("button", { name: "Lưu thay đổi" }));
   expect(dialog.getByRole("alert").textContent).toContain("Vui lòng nhập tên");
-  await user.type(name, "KHÁC"); await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  await user.type(name, "KHÁC"); await user.click(dialog.getByRole("button", { name: "Lưu thay đổi" }));
   expect(dialog.getByRole("alert").textContent).toContain("đã tồn tại");
   expect(server.version).toBe(0);
   await user.click(dialog.getByRole("button", { name: "Hủy" }));
@@ -461,11 +477,11 @@ it("cảnh báo trước khi gộp danh mục đã xóa còn trong lịch sử",
   await user.click(dialog.getByRole("button", { name: "Sửa danh mục Ăn uống" }));
   const name = dialog.getByLabelText("Đổi tên “Ăn uống”");
   await user.clear(name); await user.type(name, "Du lịch cũ");
-  await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  await user.click(dialog.getByRole("button", { name: "Lưu thay đổi" }));
   expect(confirm).toHaveBeenCalledOnce();
   expect(confirm.mock.calls[0][0]).toContain("gộp");
   expect(server.version).toBe(0);
-  await user.click(dialog.getByRole("button", { name: "Lưu tên" }));
+  await user.click(dialog.getByRole("button", { name: "Lưu thay đổi" }));
   await waitFor(() => expect(server.version).toBe(1));
   expect((server.data.entries as {category:string}[])[0].category).toBe("Du lịch cũ");
   expect((server.data.categories as {expense:string[]}).expense).toEqual(["Du lịch cũ", "Khác"]);
@@ -481,11 +497,55 @@ it("đồng bộ tên danh mục đã sửa sang phiên khác", async () => {
   await user.click(within(first.container).getByRole("button", { name: "Sửa danh mục Ăn uống" }));
   const name = within(first.container).getByLabelText("Đổi tên “Ăn uống”");
   await user.clear(name); await user.type(name, "Ăn uống mới");
-  await user.click(within(first.container).getByRole("button", { name: "Lưu tên" }));
+  await user.click(within(first.container).getByRole("button", { name: "Lưu thay đổi" }));
   await waitFor(() => expect(server.version).toBe(1));
   fireEvent.focus(window);
   await user.click(within(second.container).getByRole("button", { name: "Mở tài khoản" }));
   await user.click(within(second.container).getByRole("button", { name: "Quản lý danh mục" }));
   await waitFor(() => expect(within(second.container).getByRole("button", { name: "Sửa danh mục Ăn uống mới" })).toBeTruthy());
   expect(within(second.container).queryByRole("button", { name: "Sửa danh mục Ăn uống" })).toBeNull();
+}, 20000);
+
+it("chọn icon màu riêng, đồng bộ sang phiên khác và khôi phục tự động", async () => {
+  const user = userEvent.setup();
+  const first = render(<Page />); const second = render(<Page />);
+  await within(first.container).findByText("Đã đồng bộ");
+  await within(second.container).findByText("Đã đồng bộ");
+  await user.click(within(first.container).getByRole("button", {name:"Mở tài khoản"}));
+  await user.click(within(first.container).getByRole("button", {name:"Quản lý danh mục"}));
+  const dialog = within(first.container).getByRole("dialog");
+  await user.click(within(dialog).getByRole("button", {name:"Sửa danh mục Ăn uống"}));
+  await user.click(within(dialog).getByRole("button", {name:"Icon Quà tặng"}));
+  await user.click(within(dialog).getByRole("button", {name:"Màu Xanh dương"}));
+  await user.click(within(dialog).getByRole("button", {name:"Lưu thay đổi"}));
+  await waitFor(() => expect(server.appearances).toEqual([expect.objectContaining({kind:"expense",category:"Ăn uống",icon_key:"gift",color_key:"blue"})]));
+  fireEvent.focus(window);
+  await user.click(within(second.container).getByRole("button", {name:"Mở tài khoản"}));
+  await user.click(within(second.container).getByRole("button", {name:"Quản lý danh mục"}));
+  const secondDialog = within(second.container).getByRole("dialog");
+  await waitFor(() => expect(secondDialog.querySelector(".category-chip svg.lucide-gift")).toBeTruthy());
+  await user.click(within(secondDialog).getByRole("button", {name:"Sửa danh mục Ăn uống"}));
+  expect(within(secondDialog).getByRole("button",{name:"Icon Quà tặng"}).getAttribute("aria-pressed")).toBe("true");
+  await user.click(within(secondDialog).getByRole("button",{name:"Icon tự động"}));
+  await user.click(within(secondDialog).getByRole("button",{name:"Màu tự động"}));
+  await user.click(within(secondDialog).getByRole("button",{name:"Lưu thay đổi"}));
+  await waitFor(() => expect(server.appearances[0]).toEqual(expect.objectContaining({icon_key:null,color_key:null,revision:2})));
+}, 20000);
+
+it("giữ lựa chọn khi đổi tên và không ghi khi gặp xung đột", async () => {
+  server.appearances=[{kind:"expense",category:"Ăn uống",icon_key:"food",color_key:"orange",revision:1}];
+  const user=userEvent.setup(); render(<Page />); await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button",{name:"Mở tài khoản"}));
+  await user.click(screen.getByRole("button",{name:"Quản lý danh mục"}));
+  const dialog=within(screen.getByRole("dialog"));
+  await user.click(dialog.getByRole("button",{name:"Sửa danh mục Ăn uống"}));
+  const name=dialog.getByLabelText("Đổi tên “Ăn uống”"); await user.clear(name); await user.type(name,"Ăn uống mới");
+  await user.click(dialog.getByRole("button",{name:"Lưu thay đổi"}));
+  await waitFor(()=>expect(server.appearances.some(item=>item.category==="Ăn uống mới" && item.icon_key==="food" && item.color_key==="orange")).toBe(true));
+  await user.click(dialog.getByRole("button",{name:"Sửa danh mục Ăn uống mới"}));
+  server.appearances=server.appearances.map(item=>item.category==="Ăn uống mới"?{...item,revision:item.revision+1}:item);
+  await user.click(dialog.getByRole("button",{name:"Màu Đỏ"}));
+  await user.click(dialog.getByRole("button",{name:"Lưu thay đổi"}));
+  expect((await dialog.findByRole("alert")).textContent).toContain("thiết bị khác");
+  expect(server.appearances.find(item=>item.category==="Ăn uống mới")?.color_key).toBe("orange");
 }, 20000);

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, BarChart3, Sparkles } from "lucide-react";
 import { buildReport, formatReportShare, type ReportEntry, type ReportKind } from "@/lib/report";
-import { categoryAppearance } from "@/lib/category-icons";
+import { customizedCategoryAppearance, type CategoryAppearanceRecord } from "@/lib/category-icons";
 import { CategoryIcon } from "./category-icon";
 
 const money = (amount: number) => `${new Intl.NumberFormat("vi-VN").format(amount)}\u00a0₫`;
@@ -14,7 +14,7 @@ function comparison(current: number, previous: number, previousCount: number, ki
   return `${difference > 0 ? "Tăng" : "Giảm"} ${money(Math.abs(difference))} so với tháng trước`;
 }
 
-export function Report({ entries, month, onSelectMonth }: { entries: ReportEntry[]; month: string; onSelectMonth: (month: string) => void }) {
+export function Report({ entries, month, onSelectMonth, appearances = [] }: { entries: ReportEntry[]; month: string; onSelectMonth: (month: string) => void; appearances?: CategoryAppearanceRecord[] }) {
   const [kind, setKind] = useState<ReportKind>("expense");
   const report = useMemo(() => buildReport(entries, month), [entries, month]);
   const { current, previous, months, categories } = report;
@@ -65,8 +65,8 @@ export function Report({ entries, month, onSelectMonth }: { entries: ReportEntry
           </div>
           {categories[kind].length ? <div className="report-categories">
             {categories[kind].map((category, index) => <div className="report-category" key={category.name}>
-              <div className="report-category-heading"><span className="report-rank">{String(index + 1).padStart(2, "0")}</span><CategoryIcon name={category.name} kind={kind} /><div><strong>{category.name}</strong><small>{category.count} giao dịch · {formatReportShare(category.amount, total)}</small></div><b>{money(category.amount)}</b></div>
-              <div className="report-category-bar" aria-hidden="true"><i style={{ width: `${total ? category.amount / total * 100 : 0}%`, background: categoryAppearance(category.name, kind).color }} /></div>
+              <div className="report-category-heading"><span className="report-rank">{String(index + 1).padStart(2, "0")}</span><CategoryIcon name={category.name} kind={kind} choice={appearances.find(item => item.kind === kind && item.category === category.name)} /><div><strong>{category.name}</strong><small>{category.count} giao dịch · {formatReportShare(category.amount, total)}</small></div><b>{money(category.amount)}</b></div>
+              <div className="report-category-bar" aria-hidden="true"><i style={{ width: `${total ? category.amount / total * 100 : 0}%`, background: customizedCategoryAppearance(category.name, kind, appearances.find(item => item.kind === kind && item.category === category.name)).color }} /></div>
             </div>)}
           </div> : <div className="report-empty">Chưa có khoản {kind === "income" ? "thu" : "chi"} trong tháng này.</div>}
         </section>
