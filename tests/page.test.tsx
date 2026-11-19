@@ -619,10 +619,12 @@ it("xem chi tiêu theo ngày độc lập với tháng và chỉ tính khoản c
   expect(daily.getByRole("button", {name:/Mua đồ/})).toBeTruthy();
   expect(daily.queryByRole("button", {name:/Lương/})).toBeNull();
   fireEvent.change(daily.getByLabelText("Ngày"), {target:{value:"2024-12-31"}});
+  expect(screen.getByRole("region", {name:"Chi tiêu theo ngày"}).querySelector(".daily-date-text")?.textContent).toBe("31/12/2024");
   expect(screen.getByRole("region", {name:"Chi tiêu theo ngày"}).querySelector(".daily-total strong")?.textContent).toContain("70.000");
   expect(daily.getByRole("button", {name:/Khoản cũ/})).toBeTruthy();
   await user.click(daily.getByRole("button", {name:"Ngày sau"}));
   expect((daily.getByLabelText("Ngày") as HTMLInputElement).value).toBe("2025-01-01");
+  expect(daily.getByText("01/01/2025")).toBeTruthy();
   expect(daily.getByText("Chưa có khoản chi trong ngày này.")).toBeTruthy();
   await user.click(daily.getByRole("button", {name:"Hôm nay"}));
   expect((daily.getByLabelText("Ngày") as HTMLInputElement).value).toBe(today);

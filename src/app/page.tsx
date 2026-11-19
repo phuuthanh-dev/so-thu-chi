@@ -922,7 +922,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
           <div className="page-heading">
             <div>
               <div className="eyebrow">
-                SỔ THU CHI CỦA BẠN <span>✳</span>
+                SỔ THU CHI CỦA BẠN <Sparkles className="eyebrow-sparkle" size={13} aria-hidden="true" />
               </div>
               <h1>
                 {tab === "overview"
@@ -950,7 +950,11 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <div className="daily-total" aria-live="polite"><strong>{dailyDate ? money(dailyTotal) : "Chọn ngày"}</strong><span>{dailyDate ? `${dailyExpenses.length} khoản chi` : "để xem chi tiêu"}</span></div>
               <div className="daily-date-controls">
                 <button type="button" className="daily-day-button" aria-label="Ngày trước" disabled={!dailyDate} onClick={() => changeDay(-1)}><ChevronLeft size={18} aria-hidden="true" /></button>
-                <label className="daily-date-field" htmlFor="daily-expense-date"><span>Ngày</span><input id="daily-expense-date" type="date" value={dailyDate} onChange={event => setDailyDate(event.target.value)} /></label>
+                <label className="daily-date-field" htmlFor="daily-expense-date">
+                  <span className="daily-date-text" aria-hidden="true">{dailyDate ? dailyDate.split("-").reverse().join("/") : "Chọn ngày"}</span>
+                  <CalendarDays size={17} aria-hidden="true" />
+                  <input id="daily-expense-date" aria-label="Ngày" type="date" value={dailyDate} onChange={event => setDailyDate(event.target.value)} />
+                </label>
                 <button type="button" className="daily-day-button" aria-label="Ngày sau" disabled={!dailyDate} onClick={() => changeDay(1)}><ChevronRight size={18} aria-hidden="true" /></button>
               </div>
               {dailyDate && (dailyExpenses.length ? <details className="daily-details"><summary><span className="daily-show">Xem {dailyExpenses.length} khoản chi</span><span className="daily-hide">Ẩn chi tiết</span><ChevronDown size={17} aria-hidden="true" /></summary>{renderTransactionList(dailyExpenses)}</details> : <p className="daily-empty">Chưa có khoản chi trong ngày này.</p>)}
@@ -986,7 +990,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   </div>
                   <strong>{money(income)}</strong>
                   <small>
-                    <span className="positive">↗ Thu nhập</span> tháng này
+                    <span className="positive"><TrendingUp className="stat-caption-icon" size={13} aria-hidden="true" />Thu nhập</span> tháng này
                   </small>
                 </div>
                 <div className="stat-card">
@@ -998,7 +1002,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   </div>
                   <strong>{money(expense)}</strong>
                   <small>
-                    <span className="negative">↘ Chi tiêu</span> tháng này
+                    <span className="negative"><TrendingDown className="stat-caption-icon" size={13} aria-hidden="true" />Chi tiêu</span> tháng này
                   </small>
                 </div>
                 <div className="stat-card dark">
@@ -1010,8 +1014,9 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   </div>
                   <strong>{money(income - expense)}</strong>
                   <small>
-                    Thu nhập trừ đi chi tiêu <span>✳</span>
+                    Thu nhập trừ đi chi tiêu
                   </small>
+                  <Sparkles className="stat-decoration" aria-hidden="true" />
                 </div>
               </div>
               <div className="section-grid">
@@ -1065,7 +1070,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     </span>
                   </div>
                   <div className="budget-illustration">
-                    <div className="flower">✺</div>
+                    <div className="flower" aria-hidden="true"><Sparkles size={42} /></div>
                     <p>
                       Mỗi kế hoạch nhỏ đều đưa bạn đến gần hơn với mục tiêu.
                     </p>
@@ -1319,7 +1324,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 </span>
               </div>
               <div className="soft-note">
-                ✳ &nbsp; Ngân sách được tính theo tổng chi trong tháng.
+                Ngân sách được tính theo tổng chi trong tháng.
               </div>
             </section>
           )}

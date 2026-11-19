@@ -152,9 +152,12 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
 .daily-date-controls{display:flex;align-items:center;gap:8px;max-width:310px}
 .daily-day-button{display:grid;place-items:center;width:44px;height:44px;flex:none;padding:0;border:1px solid #ead8e0;border-radius:11px;background:#fff;color:#87516a}
 .daily-day-button:disabled{opacity:.4;cursor:not-allowed}
-.daily-date-field{display:block;flex:1;min-width:0}
-.daily-date-field span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.daily-date-field input{display:block;width:100%;min-width:0;height:44px;padding:8px;border:1px solid #ead8e0;border-radius:11px;background:#fff;color:inherit;font-size:16px}
+.daily-date-field{position:relative;display:flex;align-items:center;justify-content:space-between;gap:4px;flex:1;min-width:0;height:44px;padding:0 10px;border:1px solid #ead8e0;border-radius:11px;background:#fff;color:inherit;overflow:hidden}
+.daily-date-field .daily-date-text{min-width:0;white-space:nowrap;font-size:15px;line-height:1;font-variant-numeric:tabular-nums}
+.daily-date-field svg{flex:none;color:#87516a;pointer-events:none}
+.daily-date-field input{position:absolute;inset:0;display:block;box-sizing:border-box;width:100%;height:100%;min-width:0;min-height:0;margin:0;padding:0;border:0;appearance:none;-webkit-appearance:none;opacity:0;cursor:pointer}
+.daily-date-field input::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;cursor:pointer}
+.daily-date-field:focus-within{outline:3px solid #a15472;outline-offset:2px}
 .daily-details{margin-top:10px;border-top:1px solid #f3e6eb}
 .daily-details summary{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;color:#87516a;font-weight:700;font-size:12px;cursor:pointer;list-style:none}
 .daily-details summary::-webkit-details-marker{display:none}
@@ -166,3 +169,7 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
 .daily-empty{margin:14px 0 0;color:#765b67;font-size:12px;line-height:1.5}
 @media(max-width:760px){.daily-expenses{padding:16px;margin-bottom:16px}.daily-expenses h2{font-size:16px}.daily-total{margin:16px 0 13px}.daily-total strong{font-size:22px}}
 @media(prefers-reduced-motion:reduce){.daily-details summary svg{transition:none}}
+
+/* Vector accents avoid platform-specific color emoji rendering. */
+.eyebrow-sparkle,.stat-caption-icon{display:inline-block;vertical-align:-2px;margin-left:4px;color:#b66b87}.stat-caption-icon{margin:0 4px 0 0;color:currentColor}
+.dark:after{content:none}.stat-decoration{position:absolute;right:10px;bottom:-18px;width:108px;height:108px;color:#fff;opacity:.08;pointer-events:none}.flower svg{display:block}
