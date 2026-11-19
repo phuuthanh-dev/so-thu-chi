@@ -136,3 +136,6 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
 .appearance-preview div>span{background:transparent;padding:0}.appearance-preview small{display:block;margin-top:4px;color:#806772;font-size:11px;line-height:1.35}
 
 .member-identity{display:flex;align-items:center;gap:12px;min-width:0}.member-identity>div{min-width:0;overflow-wrap:anywhere}.member-avatar{width:40px;height:40px;flex:none}.profile-name-form{flex:1 1 100%;max-width:420px}.profile-name-form label{display:block;font-weight:700;margin-bottom:8px}.profile-name-form input{width:100%;min-height:44px;padding:10px 12px;border:1px solid #e2d4da;border-radius:8px;font-size:16px}.profile-name-actions{display:flex;gap:8px;margin-top:10px}.profile-name-actions button{min-height:44px}.profile-name-form p[role=alert]{color:#a23f50}
+
+/* Keep navigation reachable while scrolling; drawers and dialogs remain above it. */
+.topbar{position:sticky;top:0;z-index:4}
