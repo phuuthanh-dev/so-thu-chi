@@ -27,6 +27,7 @@ import {
   ArrowDownLeft,
   ArrowRight,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
@@ -133,6 +134,7 @@ export default function Page() {
 function Workspaces({ client, user, motionEnabled, toggleMotion }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void }) {
   const [workspace, setWorkspace] = useState<Family | null>(null);
   const [family, setFamily] = useState<Family | null>(null);
+  const [dailyDate, setDailyDate] = useState("");
   const familySequence = useRef(0);
   const alive = useRef(false);
   const reloadFamily = useCallback(async () => {
@@ -145,21 +147,20 @@ function Workspaces({ client, user, motionEnabled, toggleMotion }: { client: Sup
   const acceptFamily = useCallback((value: Family | null) => { familySequence.current++; setFamily(value); }, []);
   useEffect(() => {
     alive.current = true;
-    void Promise.resolve().then(reloadFamily);
+    void Promise.resolve().then(() => { setDailyDate(previous => previous || dateISO()); void reloadFamily(); });
     const timer = window.setInterval(() => void reloadFamily(), 20000);
     const onFocus = () => void reloadFamily();
     window.addEventListener("focus", onFocus);
     return () => { alive.current = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
   }, [reloadFamily]);
-  return <Ledger key={workspace?.id || "personal"} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} workspace={workspace} family={family} setFamily={acceptFamily} refreshFamily={reloadFamily} setWorkspace={setWorkspace} />;
+  return <Ledger key={workspace?.id || "personal"} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} workspace={workspace} family={family} dailyDate={dailyDate} setDailyDate={setDailyDate} setFamily={acceptFamily} refreshFamily={reloadFamily} setWorkspace={setWorkspace} />;
 }
 
-function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, setFamily, refreshFamily, setWorkspace }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void; workspace: Family | null; family: Family | null; setFamily: (family: Family | null) => void; refreshFamily: () => Promise<void>; setWorkspace: (family: Family | null) => void }) {
+function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, dailyDate, setDailyDate, setFamily, refreshFamily, setWorkspace }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void; workspace: Family | null; family: Family | null; dailyDate: string; setDailyDate: (date: string) => void; setFamily: (family: Family | null) => void; refreshFamily: () => Promise<void>; setWorkspace: (family: Family | null) => void }) {
   const draftOwner = workspace ? `${user.id}:family:${workspace.id}` : user.id;
   const [data, setData] = useState<Data | null>(null),
     [tab, setTab] = useState("overview"),
     [month, setMonth] = useState(""),
-    [dailyDate, setDailyDate] = useState(""),
     [modal, setModal] = useState<
       "entry" | "wallet" | "budget" | "category" | "rule" | "avatar" | null
     >(null),
@@ -348,7 +349,6 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     Promise.resolve().then(() => {
       const today = dateISO();
       setMonth(today.slice(0, 7));
-      setDailyDate(today);
       setDate(today);
       if (sessionStorage.getItem("nha-minh-family-invitation")) setTab("family");
       updateDrafts();
@@ -944,17 +944,16 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
           {tab === "overview" && (
             <section className="card daily-expenses" aria-labelledby="daily-expenses-title">
               <div className="daily-expenses-header">
-                <div><div className="card-kicker">THEO DÕI MỖI NGÀY</div><h2 id="daily-expenses-title">Chi tiêu theo ngày</h2></div>
-                <div className="daily-total" aria-live="polite"><strong>{dailyDate ? money(dailyTotal) : "Chọn ngày"}</strong><span>{dailyDate ? `${dailyExpenses.length} khoản chi` : "để xem chi tiêu"}</span></div>
-              </div>
-              <div className="daily-date-controls">
-                <label htmlFor="daily-expense-date">Ngày</label>
-                <button type="button" className="daily-day-button" aria-label="Ngày trước" disabled={!dailyDate} onClick={() => changeDay(-1)}><ChevronLeft size={18} aria-hidden="true" /></button>
-                <input id="daily-expense-date" type="date" value={dailyDate} onChange={event => setDailyDate(event.target.value)} />
-                <button type="button" className="daily-day-button" aria-label="Ngày sau" disabled={!dailyDate} onClick={() => changeDay(1)}><ChevronRight size={18} aria-hidden="true" /></button>
+                <h2 id="daily-expenses-title">Chi tiêu theo ngày</h2>
                 <button type="button" className="daily-today-button" onClick={() => setDailyDate(dateISO())}>Hôm nay</button>
               </div>
-              {dailyDate && (dailyExpenses.length ? <details className="daily-details"><summary>Xem {dailyExpenses.length} khoản chi</summary>{renderTransactionList(dailyExpenses)}</details> : <p className="daily-empty">Chưa có khoản chi trong ngày này.</p>)}
+              <div className="daily-total" aria-live="polite"><strong>{dailyDate ? money(dailyTotal) : "Chọn ngày"}</strong><span>{dailyDate ? `${dailyExpenses.length} khoản chi` : "để xem chi tiêu"}</span></div>
+              <div className="daily-date-controls">
+                <button type="button" className="daily-day-button" aria-label="Ngày trước" disabled={!dailyDate} onClick={() => changeDay(-1)}><ChevronLeft size={18} aria-hidden="true" /></button>
+                <label className="daily-date-field" htmlFor="daily-expense-date"><span>Ngày</span><input id="daily-expense-date" type="date" value={dailyDate} onChange={event => setDailyDate(event.target.value)} /></label>
+                <button type="button" className="daily-day-button" aria-label="Ngày sau" disabled={!dailyDate} onClick={() => changeDay(1)}><ChevronRight size={18} aria-hidden="true" /></button>
+              </div>
+              {dailyDate && (dailyExpenses.length ? <details className="daily-details"><summary><span className="daily-show">Xem {dailyExpenses.length} khoản chi</span><span className="daily-hide">Ẩn chi tiết</span><ChevronDown size={17} aria-hidden="true" /></summary>{renderTransactionList(dailyExpenses)}</details> : <p className="daily-empty">Chưa có khoản chi trong ngày này.</p>)}
             </section>
           )}
           {!["settings", "wallets", "recurring", "family"].includes(tab) && (
