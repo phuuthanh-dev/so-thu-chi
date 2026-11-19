@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, BarChart3, Sparkles } from "lucide-react";
 import { buildReport, formatReportShare, type ReportEntry, type ReportKind } from "@/lib/report";
+import { categoryAppearance } from "@/lib/category-icons";
+import { CategoryIcon } from "./category-icon";
 
 const money = (amount: number) => `${new Intl.NumberFormat("vi-VN").format(amount)}\u00a0₫`;
 const labelMonth = (month: string) => `Tháng ${Number(month.slice(5))}/${month.slice(0, 4)}`;
@@ -63,8 +65,8 @@ export function Report({ entries, month, onSelectMonth }: { entries: ReportEntry
           </div>
           {categories[kind].length ? <div className="report-categories">
             {categories[kind].map((category, index) => <div className="report-category" key={category.name}>
-              <div className="report-category-heading"><span className="report-rank">{String(index + 1).padStart(2, "0")}</span><div><strong>{category.name}</strong><small>{category.count} giao dịch · {formatReportShare(category.amount, total)}</small></div><b>{money(category.amount)}</b></div>
-              <div className="report-category-bar" aria-hidden="true"><i style={{ width: `${total ? category.amount / total * 100 : 0}%` }} /></div>
+              <div className="report-category-heading"><span className="report-rank">{String(index + 1).padStart(2, "0")}</span><CategoryIcon name={category.name} kind={kind} /><div><strong>{category.name}</strong><small>{category.count} giao dịch · {formatReportShare(category.amount, total)}</small></div><b>{money(category.amount)}</b></div>
+              <div className="report-category-bar" aria-hidden="true"><i style={{ width: `${total ? category.amount / total * 100 : 0}%`, background: categoryAppearance(category.name, kind).color }} /></div>
             </div>)}
           </div> : <div className="report-empty">Chưa có khoản {kind === "income" ? "thu" : "chi"} trong tháng này.</div>}
         </section>

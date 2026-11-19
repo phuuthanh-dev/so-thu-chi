@@ -7,6 +7,8 @@ import { useGSAP } from "@gsap/react";
 import { PetalFall } from "./petals";
 import { AvatarEditor } from "./avatar-editor";
 import { Report } from "./report";
+import { CategoryIcon } from "./category-icon";
+import { categoryAppearance } from "@/lib/category-icons";
 import { FamilyManager, captureFamilyInvitation, type Family } from "./family";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { AuthGate } from "./auth";
@@ -93,26 +95,6 @@ const nextMonth = (s: string) => {
 };
 const monthLabel = (m: string) =>
   `Tháng ${Number(m.slice(5))}, ${m.slice(0, 4)}`;
-const colors: Record<string, string> = {
-  "Ăn uống": "#e4a184",
-  "Mua sắm": "#ce9cc4",
-  "Đi lại": "#90b2c5",
-  "Nhà cửa": "#d2b789",
-  "Sức khỏe": "#e69b9a",
-  "Giải trí": "#b6a8d5",
-  Lương: "#8bac91",
-  "Thu nhập khác": "#90b8a6",
-};
-const symbols: Record<string, string> = {
-  "Ăn uống": "◒",
-  "Mua sắm": "✿",
-  "Đi lại": "↗",
-  "Nhà cửa": "⌂",
-  "Sức khỏe": "✚",
-  "Giải trí": "✦",
-  Lương: "↙",
-  "Thu nhập khác": "✳",
-};
 const nav = [
   { id: "overview", label: "Tổng quan", Icon: LayoutGrid },
   { id: "transactions", label: "Giao dịch", Icon: ArrowDownLeft },
@@ -579,15 +561,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
       {items.length ? (
         items.map((e) => (
           <div className="transaction-row" key={e.id}>
-            <span
-              className="category-icon"
-              style={{
-                background: `${colors[e.category] || "#a5aaa4"}30`,
-                color: colors[e.category] || "#a5aaa4",
-              }}
-            >
-              {symbols[e.category] || "•"}
-            </span>
+            <CategoryIcon name={e.category} kind={e.type} />
             <button
               className="transaction-name"
               onClick={() => openEntry(e.type, e)}
@@ -1003,21 +977,13 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     visibleBreakdown(breakdown, false).map(
                       ([name, value]) => (
                         <div className="category-row" key={name}>
-                          <span
-                            className="category-icon"
-                            style={{
-                              background: `${colors[name] || "#a5aaa4"}30`,
-                              color: colors[name] || "#a5aaa4",
-                            }}
-                          >
-                            {symbols[name] || "•"}
-                          </span>
+                          <CategoryIcon name={name} kind="expense" />
                           <span className="category-name">{name}</span>
                           <div className="mini-progress">
                             <div
                               style={{
                                 width: `${expense ? (value / expense) * 100 : 0}%`,
-                                background: colors[name] || "#a5aaa4",
+                                background: categoryAppearance(name, "expense").color,
                               }}
                             />
                           </div>
@@ -1587,6 +1553,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 </div>
                 <label>
                   Danh mục <span>*</span>
+                  <div className="category-select">
+                    {category && <CategoryIcon name={category} kind={kind} />}
                   <select
                     required
                     value={category}
@@ -1601,6 +1569,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                       <option key={c}>{c}</option>
                     ))}
                   </select>
+                  </div>
                 </label>
                 {!category && <p id="category-empty-hint" className="category-empty-hint">Chưa có danh mục. Vào Cài đặt → Quản lý danh mục để thêm.</p>}
                 <label>
@@ -1760,6 +1729,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                       </div>
                     ) : (
                     <div className="category-chip" key={c}>
+                      <CategoryIcon name={c} kind={kind} />
                       <span className="category-chip-name">{c}</span>
                       <button type="button" className="category-edit-button" aria-label={`Sửa danh mục ${c}`} disabled={editingCategory !== null} onClick={() => { setEditingCategory(c); setCategoryEditName(c); setCategoryEditError(""); }}><Pencil size={16} aria-hidden="true" /></button>
                       <button type="button" className="category-delete" aria-label={`Xóa danh mục ${c}`} disabled={editingCategory !== null} onClick={() => {

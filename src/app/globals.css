@@ -120,3 +120,13 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
 
 .breadcrumb-home .breadcrumb-label-full,.breadcrumb-home .breadcrumb-label-compact{margin:0;color:inherit}.breadcrumb-home .breadcrumb-label-compact{display:none}@media(max-width:760px){.breadcrumb-home .breadcrumb-label-full{display:none}.breadcrumb-home .breadcrumb-label-compact{display:inline}}
 .sidebar{scrollbar-width:thin;scrollbar-color:#e8cbd7 transparent}.workspace-switch{gap:8px}
+
+/* Category icons use the same recognizable color in lists, forms and reports. */
+.category-icon svg{display:block;flex:none}
+.category-select{display:flex;align-items:center;gap:10px;margin-top:8px}
+.modal .category-select select{flex:1;min-width:0;margin-top:0}
+.category-select .category-icon{width:42px;height:42px;border-radius:10px}
+.category-chips .category-chip{gap:6px;padding-left:6px}
+.category-chips .category-chip .category-icon{width:32px;height:32px;flex:none;border-radius:8px;padding:0}
+.category-chip .category-icon svg,.report-category .category-icon svg,.category-row .category-icon svg{width:17px;height:17px}
+.report-category-heading .category-icon{width:34px;height:34px;border-radius:9px}
