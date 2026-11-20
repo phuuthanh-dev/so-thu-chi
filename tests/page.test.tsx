@@ -645,3 +645,26 @@ it("tổng chi trong ngày cập nhật sau khi xóa giao dịch", async () => {
   await waitFor(() => expect(daily.getByText("Chưa có khoản chi trong ngày này.")).toBeTruthy());
   expect(daily.getByText(/0\s*₫/)).toBeTruthy();
 });
+
+it("xếp lịch sử, giao dịch gần đây và chi theo ngày cùng thứ tự; sửa không đổi giờ tạo", async () => {
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const entry = (id:string,note:string,createdAt?:string) => ({id,type:"expense",amount:100,category:"Ăn uống",note,wallet:"cash",date:today,...(createdAt ? {createdAt} : {})});
+  server.data.entries = [entry("old","Mới ghi cũ","2026-01-01T01:00:00.000Z"),entry("legacy","Không rõ giờ"),{...entry("new","Mới ghi mới","2026-01-01T02:00:00.000Z"),createdBy:"other"}];
+  const user=userEvent.setup(); render(<Page />); await screen.findByText("Đã đồng bộ");
+  const names=(element:Element) => Array.from(element.querySelectorAll(".transaction-name strong")).map(e=>e.textContent);
+  const recent=screen.getByRole("heading",{name:"Giao dịch gần đây"}).closest("section")!;
+  expect(names(recent)).toEqual(["Mới ghi mới","Mới ghi cũ","Không rõ giờ"]);
+  const daily=screen.getByRole("region",{name:"Chi tiêu theo ngày"});
+  await user.click(within(daily).getByText("Xem 3 khoản chi"));
+  expect(names(daily)).toEqual(["Mới ghi mới","Mới ghi cũ","Không rõ giờ"]);
+  await user.click(within(daily).getByRole("button",{name:/Mới ghi mới/}));
+  const dialog=within(screen.getByRole("dialog"));
+  const amount=dialog.getByLabelText(/Số tiền/); await user.clear(amount); await user.type(amount,"200");
+  await user.click(dialog.getByRole("button",{name:/Lưu thay đổi/}));
+  await waitFor(()=>expect((server.data.entries as {id:string;amount:number}[]).find(e=>e.id==="new")?.amount).toBe(200));
+  expect((server.data.entries as {id:string;createdAt?:string;createdBy?:string}[]).find(e=>e.id==="new")).toMatchObject({createdAt:"2026-01-01T02:00:00.000Z",createdBy:"other"});
+  await user.click(screen.getAllByRole("button",{name:"Giao dịch"})[0]);
+  const history=screen.getByRole("heading",{name:"Tất cả giao dịch"}).closest("section")!;
+  expect(names(history)).toEqual(["Mới ghi mới","Mới ghi cũ","Không rõ giờ"]);
+},20000);

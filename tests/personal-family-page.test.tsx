@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 type WalletFixture = {id: string; name: string; balance: number; ownerId?: string; visibility?: string; note?: string};
-type EntryFixture = {id: string; wallet: string; type?: string; amount?: number; date?: string; category?: string; note?: string};
+type EntryFixture = {id: string; wallet: string; type?: string; amount?: number; date?: string; category?: string; note?: string; createdAt?: string};
 type AppearanceFixture = {kind:string;category:string;icon_key:string | null;color_key:string | null;revision:number};
 type DataFixture = {wallets: WalletFixture[]; entries: EntryFixture[]; rules: unknown[]; budgets: Record<string, number>; categories: {expense: string[]; income: string[]}};
 const store = vi.hoisted(() => ({ personal: {} as DataFixture, family: {} as DataFixture, appearances: [] as AppearanceFixture[], familyVersion: 0, personalVersion: 0 }));
@@ -117,3 +117,21 @@ it("chi theo ngày giữ ngày chọn và cập nhật hai chiều theo phạm v
   await screen.findByRole("button",{name:"Nhà mình"});
   expect(screen.getByRole("region",{name:"Chi tiêu theo ngày"}).querySelector(".daily-total strong")?.textContent).toContain("130.000");
 }, 20000);
+
+it("giao dịch cùng ví có cùng thứ tự giờ tạo ở cá nhân và gia đình", async () => {
+  const day="2025-01-05", shared="11111111-1111-4111-8111-111111111111";
+  const e=(id:string,note:string,createdAt?:string) => ({id,note,wallet:shared,type:"expense",amount:1,date:day,category:"Ăn uống",...(createdAt ? {createdAt} : {})});
+  store.family.entries=[e("older","Chung cũ","2025-01-05T01:00:00.000001Z"),e("legacy","Chung chưa rõ"),e("newer","Chung mới","2025-01-05T01:00:00.000999Z")];
+  const user=userEvent.setup(); render(<Page />); await screen.findByText("Đã đồng bộ");
+  let daily=screen.getByRole("region",{name:"Chi tiêu theo ngày"});
+  fireEvent.change(within(daily).getByLabelText("Ngày"),{target:{value:day}});
+  await user.click(within(daily).getByText("Xem 3 khoản chi"));
+  const names=(node:Element)=>Array.from(node.querySelectorAll(".transaction-name strong")).map(x=>x.textContent);
+  expect(names(daily)).toEqual(["Chung mới","Chung cũ","Chung chưa rõ"]);
+  await user.click(screen.getByRole("button",{name:"Chuyển sang sổ gia đình"}));
+  await screen.findByRole("button",{name:"Nhà mình"});
+  daily=screen.getByRole("region",{name:"Chi tiêu theo ngày"});
+  expect((within(daily).getByLabelText("Ngày") as HTMLInputElement).value).toBe(day);
+  await user.click(within(daily).getByText("Xem 3 khoản chi"));
+  expect(names(daily)).toEqual(["Chung mới","Chung cũ","Chung chưa rõ"]);
+},15000);

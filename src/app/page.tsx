@@ -16,7 +16,8 @@ import { AuthGate } from "./auth";
 import {
   budgetPercent,
   calculateWalletBalance,
-  equalJson,
+  compareTransactions,
+  equalLedgerAfterServerStamp,
   listDrafts,
   removeDraft,
   visibleBreakdown,
@@ -59,6 +60,7 @@ type Entry = {
   category: string;
   note: string;
   wallet: string;
+  createdAt?: string | null;
   origin?: string;
   createdBy?: string;
 };
@@ -394,7 +396,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
           if (
             latest.error ||
             !latest.data?.[0] ||
-            !equalJson(latest.data[0].data, d)
+            !equalLedgerAfterServerStamp(latest.data[0].data, d)
           ) {
             setSyncError(
               "Chưa lưu: dữ liệu đã thay đổi trên thiết bị khác. Bản nháp được giữ trên thiết bị. Hãy tải dữ liệu mới và nhập lại thay đổi cần giữ.",
@@ -457,10 +459,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     () =>
       data?.entries
         .filter((e) => e.date.startsWith(month))
-        .sort((a, b) => b.date.localeCompare(a.date)) || [],
+        .sort(compareTransactions) || [],
     [data, month],
   );
-  const dailyExpenses = (data?.entries || []).filter(e => e.type === "expense" && e.date === dailyDate);
+  const dailyExpenses = (data?.entries || []).filter(e => e.type === "expense" && e.date === dailyDate).sort(compareTransactions);
   const dailyTotal = dailyExpenses.reduce((sum, e) => sum + e.amount, 0);
   const changeDay = (delta: number) => {
     if (!dailyDate) return;
@@ -542,12 +544,13 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
       category,
       note: note.trim(),
       wallet,
+      ...(!editId ? { createdAt: new Date().toISOString() } : {}),
     };
     const d = {
       ...data,
       entries: editId
         ? data.entries.map((x) =>
-            x.id === editId ? { ...e, origin: x.origin } : x,
+            x.id === editId ? { ...x, ...e } : x,
           )
         : [e, ...data.entries],
     };

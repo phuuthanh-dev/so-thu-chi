@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { budgetPercent, calculateWalletBalance, equalJson, listDrafts, removeDraft, visibleBreakdown, writeDraft } from "../src/lib/ledger";
+import { budgetPercent, calculateWalletBalance, compareTransactions, equalJson, equalLedgerAfterServerStamp, listDrafts, removeDraft, visibleBreakdown, writeDraft } from "../src/lib/ledger";
 
 beforeEach(() => localStorage.clear());
 
@@ -17,6 +17,26 @@ describe("bản nháp và số liệu", () => {
   it("nhận biết bản lưu đã thành công ngay cả khi JSONB đổi thứ tự khóa", () => {
     expect(equalJson({ x: 1, y: [{ a: 1, b: 2 }] }, { y: [{ b: 2, a: 1 }], x: 1 })).toBe(true);
     expect(equalJson({ x: [1, 2] }, { x: [2, 1] })).toBe(false);
+  });
+  it("sắp xếp theo ngày, giờ tạo và mã ổn định cho dữ liệu cũ hoặc trùng giờ", () => {
+    const entries = [
+      {id:"legacy-a",date:"2026-11-19"},
+      {id:"newer",date:"2026-11-19",createdAt:"2026-11-20T08:30:00.000Z"},
+      {id:"future",date:"2026-11-20",createdAt:"2026-11-19T01:00:00.000Z"},
+      {id:"older",date:"2026-11-19",createdAt:"2026-11-20T07:00:00.000Z"},
+      {id:"legacy-z",date:"2026-11-19",createdAt:"invalid"},
+      {id:"same-z",date:"2026-11-19",createdAt:"2026-11-20T08:30:00.000Z"},
+      {id:"micro-a",date:"2026-11-19",createdAt:"2026-11-20T08:30:00.000123Z"},
+    ];
+    const expected = ["future", "micro-a", "same-z", "newer", "older", "legacy-z", "legacy-a"];
+    expect([...entries].sort(compareTransactions).map(e => e.id)).toEqual(expected);
+    expect([...entries].reverse().sort(compareTransactions).map(e => e.id)).toEqual(expected);
+  });
+  it("nhận biết bản lưu sau khi máy chủ gắn giờ và nhóm lại giao dịch theo ví", () => {
+    const draft = { entries:[{id:"a",amount:10,createdAt:"client"},{id:"b",amount:20}], budgets:{} };
+    const saved = { entries:[{id:"b",amount:20,createdBy:"u1",createdAt:"server"},{id:"a",amount:10,createdAt:"server"}], budgets:{} };
+    expect(equalLedgerAfterServerStamp(draft,saved)).toBe(true);
+    expect(equalLedgerAfterServerStamp(draft,{...saved,entries:[{id:"b",amount:21},{id:"a",amount:10}]})).toBe(false);
   });
   it("không tính giao dịch tương lai vào số dư hiện tại", () => {
     expect(calculateWalletBalance(1000, "a", [
