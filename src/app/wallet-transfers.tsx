@@ -53,7 +53,7 @@ export function TransferForm({client, userId, wallets, onDone, onCancel}: {clien
     } catch { setMessage("Chưa xác nhận được kết quả. Hãy nhấn Kiểm tra lại; ứng dụng sẽ không ghi trùng."); }
     finally {busy.current=false;setLoading(false);}
   };
-  return <form onSubmit={submit}>
+  return <form className="transfer-form" onSubmit={submit}>
     <p className="modal-desc">Chuyển giữa các ví bạn có quyền sử dụng. Khoản chuyển không tính vào thu nhập, chi tiêu hay ngân sách.</p>
     <label>Từ ví<select value={source} onChange={e=>setSource(e.target.value)} disabled={!!pending || loading} required>{wallets.map(w=><option key={w.ref} value={w.ref}>{w.name} {w.ref.startsWith("p:") ? "· Cá nhân" : w.ownerId === userId ? "· Ví của bạn" : "· Ví gia đình"}</option>)}</select></label>
     <label>Đến ví<select value={destination} onChange={e=>setDestination(e.target.value)} disabled={!!pending || loading} required>{wallets.map(w=><option key={w.ref} value={w.ref}>{w.name} {w.ref.startsWith("p:") ? "· Cá nhân" : w.ownerId === userId ? "· Ví của bạn" : "· Ví gia đình"}</option>)}</select></label>
