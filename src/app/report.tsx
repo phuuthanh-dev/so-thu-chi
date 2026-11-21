@@ -3,18 +3,19 @@ import { ArrowDownLeft, ArrowUpRight, BarChart3, Sparkles } from "lucide-react";
 import { buildReport, formatReportShare, type ReportEntry, type ReportKind } from "@/lib/report";
 import { customizedCategoryAppearance, type CategoryAppearanceRecord } from "@/lib/category-icons";
 import { CategoryIcon } from "./category-icon";
+import { formatMoney, type Currency } from "@/lib/currency";
 
-const money = (amount: number) => `${new Intl.NumberFormat("vi-VN").format(amount)}\u00a0₫`;
 const labelMonth = (month: string) => `Tháng ${Number(month.slice(5))}/${month.slice(0, 4)}`;
 
-function comparison(current: number, previous: number, previousCount: number, kind: ReportKind) {
+function comparison(current: number, previous: number, previousCount: number, kind: ReportKind, currency: Currency) {
   if (!previousCount) return `Tháng trước chưa có khoản ${kind === "income" ? "thu" : "chi"}`;
   const difference = current - previous;
   if (difference === 0) return "Không đổi so với tháng trước";
-  return `${difference > 0 ? "Tăng" : "Giảm"} ${money(Math.abs(difference))} so với tháng trước`;
+  return `${difference > 0 ? "Tăng" : "Giảm"} ${formatMoney(Math.abs(difference), currency)} so với tháng trước`;
 }
 
-export function Report({ entries, month, onSelectMonth, appearances = [] }: { entries: ReportEntry[]; month: string; onSelectMonth: (month: string) => void; appearances?: CategoryAppearanceRecord[] }) {
+export function Report({ entries, month, onSelectMonth, appearances = [], currency = "VND" }: { entries: ReportEntry[]; month: string; onSelectMonth: (month: string) => void; appearances?: CategoryAppearanceRecord[]; currency?: Currency }) {
+  const money = (amount: number) => formatMoney(amount, currency);
   const [kind, setKind] = useState<ReportKind>("expense");
   const report = useMemo(() => buildReport(entries, month), [entries, month]);
   const { current, previous, months, categories } = report;
@@ -40,8 +41,8 @@ export function Report({ entries, month, onSelectMonth, appearances = [] }: { en
       <section className="report-comparison" aria-labelledby="report-compare-title">
         <div className="report-section-heading"><div><span className="card-kicker">SO SÁNH</span><h2 id="report-compare-title">So với tháng trước</h2></div><span className="report-period-tag">{labelMonth(previous.month)}</span></div>
         <div className="report-comparison-grid">
-          <div className="report-comparison-card"><span>Thu nhập</span><strong>{money(current.income)}</strong><p>{comparison(current.income, previous.income, previous.incomeCount, "income")}</p></div>
-          <div className="report-comparison-card"><span>Chi tiêu</span><strong>{money(current.expense)}</strong><p>{comparison(current.expense, previous.expense, previous.expenseCount, "expense")}</p></div>
+          <div className="report-comparison-card"><span>Thu nhập</span><strong>{money(current.income)}</strong><p>{comparison(current.income, previous.income, previous.incomeCount, "income", currency)}</p></div>
+          <div className="report-comparison-card"><span>Chi tiêu</span><strong>{money(current.expense)}</strong><p>{comparison(current.expense, previous.expense, previous.expenseCount, "expense", currency)}</p></div>
         </div>
       </section>
       <div className="report-panels">

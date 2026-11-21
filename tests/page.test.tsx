@@ -16,13 +16,13 @@ vi.mock("../src/app/auth", () => ({
   AuthGate: ({ children }: { children: (client: unknown, user: unknown) => React.ReactNode }) => children({
     rpc: async (name: string, args?: { expected_version: string; new_data: Record<string, unknown>; p_expected_version: string; p_new_data: Record<string, unknown>; p_kind: string; p_category: string; p_new_name: string; p_icon: string | null; p_color: string | null; p_expected_revision: number; p_expected_new_revision: number; p_display_name: string }) => {
       if (name === "category_appearances_get") return server.offline ? {data:null,error:{message:"offline"}} : {data:structuredClone(server.appearances),error:null};
-      if (name === "category_appearance_update" || name === "category_rename_with_appearance") {
+      if (name === "category_appearance_update" || name === "category_rename_with_appearance_v2") {
         if (!args || server.saveFails) return {data:null,error:{message:"offline"}};
         const category = name === "category_appearance_update" ? args.p_category : args.p_new_name;
         const expected = name === "category_appearance_update" ? args.p_expected_revision : args.p_expected_new_revision;
         const prior = server.appearances.find(item => item.kind === args.p_kind && item.category === category);
         if ((prior?.revision || 0) !== expected) return {data:null,error:{code:"40001"}};
-        if (name === "category_rename_with_appearance") {
+        if (name === "category_rename_with_appearance_v2") {
           if (args.p_expected_version !== `${server.version}:none:0`) return {data:[],error:null};
           server.data=structuredClone(args.p_new_data); server.version++;
         }
@@ -41,7 +41,7 @@ vi.mock("../src/app/auth", () => ({
       if (name === "family_recurring_status") return { data: null, error: { code: "42501" } };
       if (name === "recurring_status") return { data: [], error: null };
       if (name === "personal_combined_open") return server.offline ? { data: null, error: { message: "offline" } } : { data: [{ version: `${server.version}:none:0`, data: structuredClone(server.data) }], error: null };
-      if (name === "personal_combined_save") {
+      if (name === "personal_combined_save_v2") {
         if (server.saveFails) return { data: null, error: { message: "offline" } };
         if (args?.expected_version !== `${server.version}:none:0`) return { data: [], error: null };
         server.data = structuredClone(args.new_data); server.version++;
@@ -617,7 +617,7 @@ it("xem chi tiêu theo ngày độc lập với tháng và chỉ tính khoản c
   await screen.findByText("Đã đồng bộ");
   const daily = within(screen.getByRole("region", {name:"Chi tiêu theo ngày"}));
   expect((daily.getByLabelText("Ngày") as HTMLInputElement).value).toBe(today);
-  expect(daily.getByText(/100\.000/)).toBeTruthy();
+  expect(screen.getByRole("region",{name:"Chi tiêu theo ngày"}).querySelector(".daily-total strong")?.textContent).toContain("100.000");
   expect(daily.getByText("2 khoản chi")).toBeTruthy();
   await user.click(daily.getByText("Xem 2 khoản chi"));
   expect(daily.getByRole("button", {name:/Bữa sáng/})).toBeTruthy();
@@ -634,7 +634,7 @@ it("xem chi tiêu theo ngày độc lập với tháng và chỉ tính khoản c
   await user.click(daily.getByRole("button", {name:"Hôm nay"}));
   expect((daily.getByLabelText("Ngày") as HTMLInputElement).value).toBe(today);
   await user.click(screen.getByRole("button", {name:"Tháng trước"}));
-  expect(daily.getByText(/100\.000/)).toBeTruthy();
+  expect(screen.getByRole("region",{name:"Chi tiêu theo ngày"}).querySelector(".daily-total strong")?.textContent).toContain("100.000");
   expect(server.version).toBe(0);
 }, 20000);
 
@@ -673,3 +673,21 @@ it("xếp lịch sử, giao dịch gần đây và chi theo ngày cùng thứ t�
   const history=screen.getByRole("heading",{name:"Tất cả giao dịch"}).closest("section")!;
   expect(names(history)).toEqual(["Mới ghi mới","Mới ghi cũ","Không rõ giờ"]);
 },20000);
+
+it("tách số liệu VND và USD, lưu khoản chi USD chính xác đến cent", async () => {
+  const now=new Date(); const date=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+  server.data.wallets=[{id:"cash",name:"Tiền mặt",balance:0},{id:"paypal",name:"PayPal",balance:5000,currency:"USD"}];
+  server.data.entries=[{id:"vnd",type:"expense",amount:100000,category:"Ăn uống",note:"VND",wallet:"cash",date},{id:"usd",type:"expense",amount:1234,category:"Ăn uống",note:"USD",wallet:"paypal",date}];
+  const user=userEvent.setup(); render(<Page />); await screen.findByText("Đã đồng bộ");
+  expect(screen.getByRole("region",{name:"Chi tiêu theo ngày"}).querySelector(".daily-total strong")?.textContent).toContain("100.000");
+  await user.click(screen.getByRole("button",{name:"USD"}));
+  expect(screen.getByRole("region",{name:"Chi tiêu theo ngày"}).querySelector(".daily-total strong")?.textContent).toBe("$12.34");
+  await user.click(screen.getAllByRole("button",{name:"Báo cáo"})[0]);
+  expect(within(screen.getByRole("region",{name:"Thu chi còn lại"})).getByText("$12.34")).toBeTruthy();
+  await user.click(screen.getByRole("button",{name:"Thêm giao dịch"}));
+  const dialog=within(screen.getByRole("dialog"));
+  await user.selectOptions(dialog.getByLabelText(/Ví \/ tài khoản/),"paypal");
+  await user.type(dialog.getByLabelText(/Số tiền/),"0.29");
+  await user.click(dialog.getByRole("button",{name:/Lưu giao dịch/}));
+  await waitFor(()=>expect((server.data.entries as {amount:number;wallet:string}[]).some(e=>e.wallet==="paypal" && e.amount===29)).toBe(true));
+});

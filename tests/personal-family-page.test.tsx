@@ -17,7 +17,7 @@ vi.mock("../src/app/auth", () => {
     if (name === "recurring_status" || name === "family_recurring_status") return {data:[],error:null};
     if (name === "personal_combined_open") { const owned=store.family.wallets.filter(w => w.ownerId === "u1"); return {data:[{version:`${store.personalVersion}:none:${store.familyVersion}`,data:{...clone(store.personal),wallets:[...clone(store.personal.wallets),...clone(owned)],entries:[...clone(store.personal.entries),...clone(store.family.entries.filter(e => owned.some(w => w.id === e.wallet)))],rules:[]}}],error:null}; }
     if (name === "family_open_ledger") return {data:[{version:store.familyVersion,data:clone(store.family)}],error:null};
-    if (name === "personal_combined_save") {
+    if (name === "personal_combined_save_v2") {
       if (!args) throw new Error("missing save data");
       const foreign = store.family.wallets.filter(w => w.ownerId !== "u1");
       store.family.wallets = clone([...foreign, ...args.new_data.wallets.filter((w:WalletFixture) => w.ownerId)]);
@@ -27,7 +27,7 @@ vi.mock("../src/app/auth", () => {
       store.familyVersion++;
       return client.rpc("personal_combined_open");
     }
-    if (name === "family_save_ledger") { if (!args) throw new Error("missing save data"); store.family=clone(args.new_data); store.familyVersion++; return client.rpc("family_open_ledger"); }
+    if (name === "family_save_ledger_v2") { if (!args) throw new Error("missing save data"); store.family=clone(args.new_data); store.familyVersion++; return client.rpc("family_open_ledger"); }
     throw Error(`unknown ${name}`);
   }, auth:{signOut:async()=>({error:null})} };
   return {AuthGate:({children}:{children:(client:unknown,user:unknown)=>React.ReactNode}) => children(client,{id:"u1",phone:"Số 1"})};

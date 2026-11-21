@@ -11,6 +11,7 @@ import { PullToRefresh } from "./pull-to-refresh";
 import { SecureAvatar, uploadAvatar } from "./secure-avatar";
 import { TransferForm, transferDelta, type TransferState } from "./wallet-transfers";
 import { Report } from "./report";
+import { formatMoney, moneyInput, parseMoney, parseSignedMoney, walletCurrency, type Currency } from "@/lib/currency";
 import { CategoryIcon } from "./category-icon";
 import { CategoryAppearancePicker } from "./category-appearance-picker";
 import { customizedCategoryAppearance, type CategoryAppearanceRecord } from "@/lib/category-icons";
@@ -68,7 +69,7 @@ type Entry = {
   origin?: string;
   createdBy?: string;
 };
-type WalletItem = { id: string; name: string; balance: number; archived?: boolean; ownerId?: string; visibility?: "private" | "shared"; note?: string };
+type WalletItem = { id: string; name: string; balance: number; currency?: Currency; archived?: boolean; ownerId?: string; visibility?: "private" | "shared"; note?: string };
 type Rule = {
   id: string;
   type: Kind;
@@ -93,7 +94,6 @@ const localDateISO = (d: Date) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 const dateISO = () => localDateISO(new Date());
-const money = (n: number) => new Intl.NumberFormat("vi-VN").format(n) + "\u00a0₫";
 const uid = () =>
   globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 const nextMonth = (s: string) => {
@@ -114,7 +114,7 @@ const nav = [
   { id: "family", label: "Quản lý gia đình", Icon: Users },
 ];
 
-type RefreshLocation = { tab: string; family: boolean; month?: string; dailyDate?: string };
+type RefreshLocation = { tab: string; family: boolean; month?: string; dailyDate?: string; currency?: Currency };
 const refreshLocationKey = (userId: string) => `nha-minh-refresh-location:${userId}`;
 function readRefreshLocation(userId: string): RefreshLocation | null {
   try {
@@ -124,7 +124,8 @@ function readRefreshLocation(userId: string): RefreshLocation | null {
     if (typeof parsed.family !== "boolean" || !(parsed.tab === "settings" || nav.some(item => item.id === parsed.tab))) return null;
     return {tab:parsed.tab,family:parsed.family,
       month:typeof parsed.month === "string" && /^\d{4}-\d{2}$/.test(parsed.month) ? parsed.month : undefined,
-      dailyDate:typeof parsed.dailyDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.dailyDate) ? parsed.dailyDate : undefined};
+      dailyDate:typeof parsed.dailyDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.dailyDate) ? parsed.dailyDate : undefined,
+      currency:parsed.currency === "USD" ? "USD" : "VND"};
   } catch { return null; }
 }
 
@@ -208,6 +209,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     [repeat, setRepeat] = useState(false),
     [walletName, setWalletName] = useState(""),
     [walletBalance, setWalletBalance] = useState("0"),
+    [walletUnit, setWalletUnit] = useState<Currency>("VND"),
+    [viewCurrency, setViewCurrency] = useState<Currency>(() => readRefreshLocation(user.id)?.currency || "VND"),
     [walletEditId, setWalletEditId] = useState<string | null>(null),
     [walletVisibility, setWalletVisibility] = useState<"private" | "shared">("private"),
     [walletOwner, setWalletOwner] = useState(user.id),
@@ -459,7 +462,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     setSyncError("");
     void (async () => {
       try {
-        const { data: savedRows, error } = await client.rpc(workspace ? "family_save_ledger" : "personal_combined_save", {
+        const { data: savedRows, error } = await client.rpc(workspace ? "family_save_ledger_v2" : "personal_combined_save_v2", {
           expected_version: version.current,
           new_data: d,
         });
@@ -530,14 +533,12 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     } catch { setNameError("Không lưu được tên. Hãy kiểm tra kết nối và thử lại."); }
     finally { busyRef.current = false; setBusy(false); }
   };
-  const entries = useMemo(
-    () =>
-      data?.entries
-        .filter((e) => e.date.startsWith(month))
-        .sort(compareTransactions) || [],
-    [data, month],
-  );
-  const dailyExpenses = (data?.entries || []).filter(e => e.type === "expense" && e.date === dailyDate).sort(compareTransactions);
+  const currencyOf = (walletId: string) => walletCurrency(data?.wallets.find(w => w.id === walletId)?.currency);
+  const money = (n: number, currency: Currency = viewCurrency) => formatMoney(n, currency);
+  const monthEntries = useMemo(() => data?.entries.filter(e => e.date.startsWith(month)).sort(compareTransactions) || [], [data, month]);
+  const currencyEntries = useMemo(() => data?.entries.filter(e => walletCurrency(data.wallets.find(w => w.id === e.wallet)?.currency) === viewCurrency) || [], [data, viewCurrency]);
+  const entries = monthEntries.filter(e => currencyOf(e.wallet) === viewCurrency);
+  const dailyExpenses = currencyEntries.filter(e => e.type === "expense" && e.date === dailyDate).sort(compareTransactions);
   const dailyTotal = dailyExpenses.reduce((sum, e) => sum + e.amount, 0);
   const changeDay = (delta: number) => {
     if (!dailyDate) return;
@@ -552,8 +553,9 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     expense = entries
       .filter((e) => e.type === "expense")
       .reduce((s, e) => s + e.amount, 0),
-    budget = data?.budgets[month] || 0;
-  const breakdown = useMemo(() => {
+    budgetKey = viewCurrency === "VND" ? month : `USD:${month}`,
+    budget = data?.budgets[budgetKey] || 0;
+  const breakdown = (() => {
     const result: Record<string, number> = {};
     entries
       .filter((e) => e.type === "expense")
@@ -561,7 +563,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
         (e) => (result[e.category] = (result[e.category] || 0) + e.amount),
       );
     return Object.entries(result).sort((a, b) => b[1] - a[1]);
-  }, [entries]);
+  })();
   const changeMonth = (delta: number) => {
     const [y, m] = month.split("-").map(Number),
       d = new Date(y, m - 1 + delta, 1);
@@ -569,7 +571,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   };
   const openEntry = (t: Kind = "expense", e?: Entry) => {
     setKind(e?.type || t);
-    setAmount(e ? String(e.amount) : "");
+    setAmount(e ? moneyInput(e.amount, currencyOf(e.wallet)) : "");
     setShowAmountSuggestions(false);
     setDate(e?.date || dateISO());
     setCategory(e?.category || data?.categories[t][0] || "");
@@ -581,8 +583,11 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   };
   const submitEntry = (ev: React.FormEvent) => {
     ev.preventDefault();
-    if (!data || !Number(amount) || !wallet || !category) return;
+    if (!data || !wallet || !category) return;
+    const parsedAmount = parseMoney(amount, currencyOf(wallet));
+    if (parsedAmount === null || parsedAmount <= 0) { alert("Vui lòng nhập số tiền hợp lệ lớn hơn 0."); return; }
     const original = modal === "rule" ? data.rules.find(item => item.id === ruleId) : data.entries.find(item => item.id === editId);
+    if (original && currencyOf(original.wallet) !== currencyOf(wallet)) { alert("Hãy chọn ví cùng loại tiền với giao dịch ban đầu."); return; }
     if (!workspace && original && !!data.wallets.find(item => item.id === original.wallet)?.ownerId !== !!data.wallets.find(item => item.id === wallet)?.ownerId) {
       alert("Chưa hỗ trợ chuyển giao dịch hoặc lịch định kỳ giữa ví cá nhân và ví gia đình. Bạn vẫn có thể sửa các thông tin khác."); return;
     }
@@ -592,7 +597,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
       const updated = {
         ...existing,
         type: kind,
-        amount: Number(amount),
+        amount: parsedAmount,
         category,
         note: note.trim(),
         wallet,
@@ -614,7 +619,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     const e: Entry = {
       id: editId || uid(),
       type: kind,
-      amount: Number(amount),
+      amount: parsedAmount,
       date,
       category,
       note: note.trim(),
@@ -635,7 +640,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
         {
           id: uid(),
           type: kind,
-          amount: Number(amount),
+          amount: parsedAmount,
           category,
           note: note.trim(),
           wallet,
@@ -678,7 +683,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     try {
       const targetRevision = renamed ? appearanceOf(name, kind)?.revision || 0 : editingAppearanceRevision;
       const result = renamed
-        ? await client.rpc("category_rename_with_appearance", {
+        ? await client.rpc("category_rename_with_appearance_v2", {
             p_mode: workspace ? "family" : "personal", p_expected_version: String(version.current),
             p_new_data: { ...data,
               categories: { ...data.categories, [kind]: data.categories[kind].map(item => item === oldName ? name : item) },
@@ -733,7 +738,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
       setAvatarError(error instanceof Error ? error.message : "Không thể xử lý ảnh, vui lòng thử lại.");
     }
   };
-  const list = entries.filter(
+  const list = monthEntries.filter(
     (e) =>
       (filter === "all" || e.type === filter) &&
       `${e.note} ${e.category}`.toLowerCase().includes(query.toLowerCase()),
@@ -762,7 +767,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
             <strong
               className={e.type === "income" ? "positive" : "amount-negative"}
             >
-              {e.type === "income" ? "+" : "−"} {money(e.amount)}
+              {e.type === "income" ? "+" : "−"} {money(e.amount, currencyOf(e.wallet))}
             </strong>
             <button
               className="delete-btn"
@@ -790,7 +795,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     <div className={`app-shell${motionEnabled ? "" : " motion-off"}`}>
       <PetalFall enabled={motionEnabled} />
       <PullToRefresh isBlocked={() => busyRef.current || dirtyRef.current || !!modalRef.current || menu || editingName || familyRefreshBlocked} reload={() => {
-        try { sessionStorage.setItem(refreshLocationKey(user.id), JSON.stringify({tab,family:!!workspace,month,dailyDate})); } catch { /* Refresh still works when storage is unavailable. */ }
+        try { sessionStorage.setItem(refreshLocationKey(user.id), JSON.stringify({tab,family:!!workspace,month,dailyDate,currency:viewCurrency})); } catch { /* Refresh still works when storage is unavailable. */ }
         window.location.reload();
       }} />
       {busy && (
@@ -1025,6 +1030,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <Plus size={18} aria-hidden="true" /> <span className="add-transaction-label">Thêm giao dịch</span>
             </button>
           </div>
+          {["overview", "reports", "budget"].includes(tab) && <div className="currency-switch" role="group" aria-label="Loại tiền báo cáo"><span>Đang xem</span>{(["VND", "USD"] as Currency[]).map(unit => <button key={unit} type="button" aria-pressed={viewCurrency === unit} onClick={() => setViewCurrency(unit)}>{unit}</button>)}<small>Không quy đổi</small></div>}
           {tab === "overview" && (
             <section className="card daily-expenses" aria-labelledby="daily-expenses-title">
               <div className="daily-expenses-header">
@@ -1130,7 +1136,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     <button
                       className="icon-btn"
                       onClick={() => {
-                        setBudgetInput(String(budget || ""));
+                        setBudgetInput(budget ? moneyInput(budget, viewCurrency) : "");
                         setModal("budget");
                       }}
                       aria-label="Sửa ngân sách"
@@ -1228,7 +1234,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                         <small>Số dư theo ghi chép</small>
                       </div>
                       <b>
-                        {transfers === null ? "—" : money(walletTotal(w, data.entries)!)}
+                        {transfers === null ? "—" : money(walletTotal(w, data.entries)!, walletCurrency(w.currency))}
                       </b>
                     </div>
                   ))}
@@ -1237,7 +1243,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
             </>
           )}
           {tab === "family" && <FamilyManager client={client} userId={user.id} family={family} onFamily={setFamily} personal={!workspace} wallets={data.wallets.filter(item => !item.ownerId)} personalVersion={() => typeof version.current === "string" ? Number(version.current.split(":")[0]) : version.current} disabled={busy || !!syncError} refresh={() => refresh(true)} switchWorkspace={switchLedger} onRefreshBlockChange={setFamilyRefreshBlocked} />}
-          {tab === "reports" && <Report entries={data.entries} month={month} onSelectMonth={setMonth} appearances={appearances} />}
+          {tab === "reports" && <Report entries={currencyEntries} currency={viewCurrency} month={month} onSelectMonth={setMonth} appearances={appearances} />}
           {tab === "transactions" && (
             <section className="card full-card">
               <div className="card-heading">
@@ -1288,7 +1294,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   onClick={() => {
                     setWalletEditId(null);
                     setWalletName("");
-                    setWalletBalance("0");
+                    setWalletBalance("0"); setWalletUnit("VND");
                     setWalletVisibility("private"); setWalletOwner(user.id); setWalletNote("");
                     setModal("wallet");
                   }}
@@ -1297,8 +1303,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 </button>
               </div>
               {transferError && <p className="avatar-error" role="alert">{transferError}</p>}
-              <button className="outline-btn transfer-open" disabled={!transfers || !!syncError || busy || transfers.wallets.length < 2} onClick={() => setModal("transfer")}><Repeat2 size={16} aria-hidden="true" /> Chuyển giữa các ví</button>
-              {transfers && transfers.wallets.length < 2 && <p className="footnote">Cần ít nhất hai ví đang sử dụng để chuyển tiền.</p>}
+              {!workspace && <><button className="outline-btn transfer-open" disabled={!transfers || !!syncError || busy} onClick={() => setModal("transfer")}><Repeat2 size={16} aria-hidden="true" /> Chuyển giữa các ví</button>
+              {transfers && transfers.wallets.length < 2 && <p className="footnote">Cần ít nhất hai ví bạn sở hữu để chuyển tiền.</p>}</>}
               {data.wallets.filter((w) => !w.archived).map((w) => (
                 <div className="wallet-row large wallet-manage" key={w.id}>
                   <span className="wallet-icon">
@@ -1306,18 +1312,18 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   </span>
                   <div>
                     <strong>{w.name}</strong>
-                    <small>Số dư ban đầu: {money(w.balance)}</small>
+                    <small>Số dư ban đầu: {money(w.balance, walletCurrency(w.currency))}</small>
                     {w.ownerId && <small><span className="wallet-privacy">{w.visibility === "shared" ? "Chia sẻ" : "Riêng tư"}</span> · {w.ownerId === user.id ? "Ví của bạn" : memberName(family?.members.find(m => m.userId === w.ownerId), user.id)}</small>}
                     {w.note && <small>{w.note}</small>}
                   </div>
                   <b>
-                    {transfers === null ? "—" : money(walletTotal(w, data.entries)!)}
+                    {transfers === null ? "—" : money(walletTotal(w, data.entries)!, walletCurrency(w.currency))}
                   </b>
                   {(!workspace || w.ownerId === user.id) && <div className="wallet-actions">
                     <button className="wallet-action" aria-label={`Sửa ví ${w.name}`} onClick={() => {
                       setWalletEditId(w.id);
                       setWalletName(w.name);
-                      setWalletBalance(String(w.balance));
+                      setWalletBalance(moneyInput(w.balance, walletCurrency(w.currency))); setWalletUnit(walletCurrency(w.currency));
                       setWalletVisibility(w.visibility || "private"); setWalletOwner(w.ownerId || user.id); setWalletNote(w.note || "");
                       setModal("wallet");
                     }}>Sửa</button>
@@ -1357,7 +1363,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   ))}
                 </div>
               )}
-              {transfers && transfers.legs.some(leg => data.wallets.some(w => walletRef(w) === leg.ref)) && <div className="transfer-history"><h3>Lịch sử chuyển ví</h3>{transfers.legs.filter(leg => data.wallets.some(w => walletRef(w) === leg.ref)).map(leg => <div className="transfer-history-row" key={`${leg.id}:${leg.ref}`}><div><strong>{leg.direction === "out" ? "Chuyển đến" : "Nhận từ"} {leg.otherName}</strong><small>{data.wallets.find(w => walletRef(w) === leg.ref)?.name} · {leg.date.split("-").reverse().join("/")}</small></div><b>{leg.direction === "out" ? "−" : "+"}{money(leg.amount)}</b></div>)}</div>}
+              {transfers && transfers.legs.some(leg => data.wallets.some(w => walletRef(w) === leg.ref)) && <div className="transfer-history"><h3>Lịch sử chuyển ví</h3>{transfers.legs.filter(leg => data.wallets.some(w => walletRef(w) === leg.ref)).map(leg => <div className="transfer-history-row" key={`${leg.id}:${leg.ref}`}><div><strong>{leg.direction === "out" ? "Chuyển đến" : "Nhận từ"} {leg.otherName}</strong><small>{data.wallets.find(w => walletRef(w) === leg.ref)?.name} · {leg.date.split("-").reverse().join("/")}</small></div><b>{leg.direction === "out" ? "−" : "+"}{money(leg.amount, walletCurrency(leg.currency))}</b></div>)}</div>}
               <p className="footnote">Chuyển ví chỉ thay đổi số dư, không tính vào thu chi.</p>
             </section>
           )}
@@ -1372,7 +1378,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 <button
                   className="outline-btn"
                   onClick={() => {
-                    setBudgetInput(String(budget || ""));
+                    setBudgetInput(budget ? moneyInput(budget, viewCurrency) : "");
                     setModal("budget");
                   }}
                 >
@@ -1429,14 +1435,14 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                         {r.active ? "Đang hoạt động" : "Đã tạm dừng"}
                       </small>
                     </div>
-                    <b className="recurring-amount">{money(r.amount)}</b>
+                    <b className="recurring-amount">{money(r.amount, currencyOf(r.wallet))}</b>
                     <div className="recurring-actions">
                     <button
                       className="text-link"
                       onClick={() => {
                         setRuleId(r.id);
                         setKind(r.type);
-                        setAmount(String(r.amount));
+                        setAmount(moneyInput(r.amount, currencyOf(r.wallet)));
                         setShowAmountSuggestions(false);
                         setCategory(r.category);
                         setNote(r.note);
@@ -1697,10 +1703,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   Số tiền <span>*</span>
                   <div className="amount-input">
                     <input
-                      type="number"
-                      inputMode="numeric"
-                      min="1"
-                      step="1"
+                      type="text"
+                      inputMode={currencyOf(wallet) === "USD" ? "decimal" : "numeric"}
                       required
                       placeholder="0"
                       value={amount}
@@ -1709,10 +1713,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                         setShowAmountSuggestions(true);
                       }}
                     />
-                    <b>₫</b>
+                    <b>{currencyOf(wallet) === "USD" ? "$" : "₫"}</b>
                   </div>
                 </label>
-                {showAmountSuggestions && /^[0-9]+$/.test(amount) && Number(amount) > 0 && Number.isSafeInteger(Number(amount) * 1000) && (
+                {currencyOf(wallet) === "VND" && showAmountSuggestions && /^[0-9]+$/.test(amount) && Number(amount) > 0 && Number.isSafeInteger(Number(amount) * 1000) && (
                   <div className="amount-suggestions" role="group" aria-label="Gợi ý số tiền">
                     <p>Chọn nhanh số tiền</p>
                     <div>
@@ -1746,12 +1750,12 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     <select
                       required
                       value={wallet}
-                      onChange={(e) => setWallet(e.target.value)}
+                      onChange={(e) => { if (currencyOf(wallet) !== currencyOf(e.target.value)) { setAmount(""); setShowAmountSuggestions(false); } setWallet(e.target.value); }}
                     >
                       {!wallet && <option value="" disabled>Hãy thêm ví trước</option>}
                       {data.wallets.filter((w) => !w.archived || w.id === wallet).map((w) => (
                         <option value={w.id} key={w.id}>
-                          {w.name}{w.archived ? " (đã lưu trữ)" : ""}
+                          {w.name} · {walletCurrency(w.currency)}{w.archived ? " (đã lưu trữ)" : ""}
                         </option>
                       ))}
                     </select>
@@ -1810,13 +1814,15 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (!walletName.trim()) return;
+                  const openingBalance = parseSignedMoney(walletBalance || "0", walletUnit);
+                  if (openingBalance === null) { alert("Vui lòng nhập số dư hợp lệ."); return; }
                   if (walletEditId && (workspace || data.wallets.find(item => item.id === walletEditId)?.ownerId) && (walletOwner !== user.id || walletVisibility === "shared") && !confirm("Cập nhật chủ sở hữu hoặc chia sẻ ví sẽ thay đổi người có thể xem toàn bộ giao dịch và lịch định kỳ của ví. Tiếp tục?")) return;
                   if (
                     save({
                       ...data,
                       wallets: walletEditId
-                        ? data.wallets.map((item) => item.id === walletEditId ? { ...item, name: walletName.trim(), balance: Number(walletBalance) || 0, ...((workspace || item.ownerId) ? { ownerId: walletOwner, visibility: walletVisibility, note: walletNote.trim() } : {}) } : item)
-                        : [...data.wallets, { id: uid(), name: walletName.trim(), balance: Number(walletBalance) || 0, ...(workspace ? { ownerId: user.id, visibility: walletVisibility, note: walletNote.trim() } : {}) }],
+                        ? data.wallets.map((item) => item.id === walletEditId ? { ...item, name: walletName.trim(), balance: openingBalance, ...((workspace || item.ownerId) ? { ownerId: walletOwner, visibility: walletVisibility, note: walletNote.trim() } : {}) } : item)
+                        : [...data.wallets, { id: uid(), name: walletName.trim(), balance: openingBalance, currency: walletUnit, ...(workspace ? { ownerId: user.id, visibility: walletVisibility, note: walletNote.trim() } : {}) }],
                     })
                   ) {
                     setWalletName("");
@@ -1834,11 +1840,13 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     placeholder="Ví dụ: Tiền mặt"
                   />
                 </label>
+                <label>Loại tiền<select value={walletUnit} disabled={!!walletEditId} onChange={e => { setWalletUnit(e.target.value as Currency); setWalletBalance("0"); }}><option value="VND">VND · Đồng Việt Nam</option><option value="USD">USD · Đô la Mỹ</option></select></label>
+                {walletEditId && <p className="modal-desc">Loại tiền không thể thay đổi sau khi tạo ví.</p>}
                 <label>
-                  Số dư ban đầu (₫)
+                  Số dư ban đầu ({walletUnit})
                   <input
-                    type="number"
-                    step="1"
+                    type="text"
+                    inputMode={walletUnit === "USD" ? "decimal" : "numeric"}
                     value={walletBalance}
                     onChange={(e) => setWalletBalance(e.target.value)}
                   />
@@ -1856,10 +1864,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  const n = Number(budgetInput);
-                  if (n <= 0) return;
+                  const n = parseMoney(budgetInput, viewCurrency);
+                  if (n === null || n <= 0) { alert("Vui lòng nhập ngân sách hợp lệ lớn hơn 0."); return; }
                   if (
-                    save({ ...data, budgets: { ...data.budgets, [month]: n } })
+                    save({ ...data, budgets: { ...data.budgets, [budgetKey]: n } })
                   )
                     setModal(null);
                 }}
@@ -1869,15 +1877,14 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   {monthLabel(month).toLowerCase()}.
                 </p>
                 <label>
-                  Ngân sách (₫)
+                  Ngân sách ({viewCurrency})
                   <input
-                    type="number"
-                    min="1"
-                    step="1"
+                    type="text"
+                    inputMode={viewCurrency === "USD" ? "decimal" : "numeric"}
                     required
                     value={budgetInput}
                     onChange={(e) => setBudgetInput(e.target.value)}
-                    placeholder="Ví dụ: 10000000"
+                    placeholder={viewCurrency === "USD" ? "Ví dụ: 100.50" : "Ví dụ: 10000000"}
                   />
                 </label>
                 <button className="primary-btn form-submit">

@@ -178,3 +178,8 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
 .transfer-form .form-submit{min-height:44px}
 @media(max-width:760px){html,body{overscroll-behavior-y:contain}.modal-backdrop{overscroll-behavior:contain}.pull-refresh{position:fixed;z-index:9;top:calc(env(safe-area-inset-top) + 8px);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100% - 32px);padding:9px 14px;border:1px solid #eed9e2;border-radius:999px;background:#fffafb;color:#784a60;box-shadow:0 4px 18px #5b344322;font-size:12px;font-weight:700;white-space:nowrap;pointer-events:none}.pull-refresh-ready svg{transform:rotate(180deg)}.pull-refresh-refreshing svg{animation:pull-spin .8s linear infinite}@keyframes pull-spin{to{transform:rotate(360deg)}}}
 @media(prefers-reduced-motion:reduce){.pull-refresh-refreshing svg{animation:none}}
+
+.currency-switch { display:flex; align-items:center; flex-wrap:wrap; gap:.4rem; margin:0 0 1rem; color:var(--muted, #876879); font-size:.85rem; }
+.currency-switch button { border:1px solid #e9ced8; border-radius:999px; background:#fff; color:#7b5365; padding:.38rem .75rem; font-weight:600; cursor:pointer; }
+.currency-switch button[aria-pressed="true"] { background:#a74570; border-color:#a74570; color:#fff; }
+.currency-switch small { font-size:.78rem; }

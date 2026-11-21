@@ -31,7 +31,7 @@ it("chuyển ví dùng phiên bản hiện tại và lựa chọn riêng tư c�
   await user.selectOptions(screen.getByLabelText("Chủ sở hữu"), "u2");
   await user.selectOptions(screen.getByLabelText("Quyền xem"), "shared");
   await user.click(screen.getByRole("button", {name:"Chuyển ví đã chọn"}));
-  await waitFor(() => expect(rpc).toHaveBeenCalledWith("family_transfer_wallets", { expected_personal_version:7,expected_family_version:9,choices:[{walletId:"cash",ownerId:"u2",visibility:"shared"}] }));
+  await waitFor(() => expect(rpc).toHaveBeenCalledWith("family_transfer_wallets_v2", { expected_personal_version:7,expected_family_version:9,choices:[{walletId:"cash",ownerId:"u2",visibility:"shared"}] }));
 });
 
 it("hiển thị tên và ảnh thành viên thay cho số điện thoại", async () => {

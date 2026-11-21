@@ -40,8 +40,9 @@ do $$ declare s jsonb; shared text; begin
  s:=public.wallet_transfer_state();
  if jsonb_array_length(s->'legs')<>1 or s::text like '%Bank private%' then raise exception 'personal wallet leaked to other member'; end if;
  if s->'legs'->0->>'otherName'<>'Ví khác' then raise exception 'hidden counterpart not redacted'; end if;
- select value->>'ref' into shared from jsonb_array_elements(s->'wallets') where value->>'name'='Shared wallet';
- perform public.wallet_transfer_create('aaaaaaaa-0000-0000-0000-000000000003',shared,'p:cash',100);
+ select value->>'ref' into shared from jsonb_array_elements(s->'legs') where value->>'direction'='in';
+ if exists(select 1 from jsonb_array_elements(s->'wallets') where value->>'ref'=shared) then raise exception 'other member wallet offered for transfer'; end if;
+ begin perform public.wallet_transfer_create('aaaaaaaa-0000-0000-0000-000000000003',shared,'p:cash',100); raise exception 'other member wallet accepted'; exception when insufficient_privilege then null; end;
  begin perform public.wallet_transfer_create('aaaaaaaa-0000-0000-0000-000000000004','p:bank',shared,5); raise exception 'other personal wallet accessible'; exception when insufficient_privilege then null; end;
 end $$;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000103',true);
@@ -56,7 +57,7 @@ do $$ declare v bigint; s jsonb; moved text; begin
  select value->>'ref' into moved from jsonb_array_elements(s->'wallets') where value->>'name'='Bank private';
  if not exists(select 1 from jsonb_array_elements(s->'legs') where value->>'ref'=moved and (value->>'amount')::int=250 and value->>'direction'='out') then raise exception 'movement lost during wallet migration'; end if;
  perform public.wallet_transfer_create('aaaaaaaa-0000-0000-0000-000000000001','p:bank',(select value->>'ref' from jsonb_array_elements(s->'wallets') where value->>'name'='Shared wallet'),250);
- if jsonb_array_length(public.wallet_transfer_state()->'legs')<>3 then raise exception 'retry after migration duplicated transfer'; end if;
+ if jsonb_array_length(public.wallet_transfer_state()->'legs')<>2 then raise exception 'retry after migration duplicated transfer'; end if;
 end $$;
 reset role;
 do $$ begin

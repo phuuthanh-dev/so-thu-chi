@@ -1,49 +1,56 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { moneyInput, parseMoney, walletCurrency, type Currency } from "@/lib/currency";
 
-export type TransferWallet = { ref: string; walletId: string; name: string; ownerId: string };
-export type TransferLeg = { id: string; ref: string; walletId: string; direction: "in" | "out"; amount: number; date: string; createdAt: string; otherName: string };
+export type TransferWallet = { ref: string; walletId: string; name: string; ownerId: string; currency?: Currency };
+export type TransferLeg = { id: string; ref: string; walletId: string; direction: "in" | "out"; amount: number; currency?: Currency; date: string; createdAt: string; otherName: string };
 export type TransferState = { wallets: TransferWallet[]; legs: TransferLeg[] };
 export function transferDelta(legs: TransferLeg[], ref: string): number {
   return legs.filter(leg => leg.ref === ref).reduce((sum, leg) => sum + (leg.direction === "in" ? leg.amount : -leg.amount), 0);
 }
 export function TransferForm({client, userId, wallets, onDone, onCancel}: {client: SupabaseClient; userId: string; wallets: TransferWallet[]; onDone: () => Promise<void>; onCancel: () => void}) {
   const pendingKey = `nha-minh-pending-transfer:${userId}`;
-  type Pending = {id: string; source: string; destination: string; amount: number};
+  type Pending = {id: string; source: string; destination: string; amount: number; destinationAmount?: number};
   const [source,setSource]=useState(wallets[0]?.ref || "");
   const [destination,setDestination]=useState(wallets[1]?.ref || "");
   const [amount,setAmount]=useState("");
+  const [received,setReceived]=useState("");
   const [pending,setPending]=useState<Pending | null>(null);
   const [message,setMessage]=useState("");
   const [loading,setLoading]=useState(false);
   const [ready,setReady]=useState(false);
   const busy=useRef(false);
+  const sourceCurrency=walletCurrency(wallets.find(w=>w.ref===source)?.currency);
+  const destinationCurrency=walletCurrency(wallets.find(w=>w.ref===destination)?.currency);
+  const crossCurrency=sourceCurrency!==destinationCurrency;
   useEffect(()=>{ void Promise.resolve().then(() => {
     try {
       const stored = localStorage.getItem(pendingKey);
       if (stored) {
         const value = JSON.parse(stored) as Pending;
-        if (typeof value.id === "string" && typeof value.source === "string" && typeof value.destination === "string" && Number.isSafeInteger(value.amount) && value.amount > 0) {
-          setPending(value); setSource(value.source); setDestination(value.destination); setAmount(String(value.amount));
+        if (typeof value.id === "string" && typeof value.source === "string" && typeof value.destination === "string" && Number.isSafeInteger(value.amount) && value.amount > 0 && (value.destinationAmount === undefined || (Number.isSafeInteger(value.destinationAmount) && value.destinationAmount > 0))) {
+          setPending(value); setSource(value.source); setDestination(value.destination);
+          setAmount(moneyInput(value.amount,walletCurrency(wallets.find(w=>w.ref===value.source)?.currency)));
+          setReceived(moneyInput(value.destinationAmount ?? value.amount,walletCurrency(wallets.find(w=>w.ref===value.destination)?.currency)));
           setMessage("Lần chuyển trước chưa được xác nhận. Hãy nhấn Kiểm tra lại để tránh ghi trùng.");
         }
       }
     } catch { setMessage("Không đọc được thông tin chuyển tiền đang chờ xác nhận."); }
     setReady(true);
-  }); },[pendingKey]);
+  }); },[pendingKey, wallets]);
   const submit=async(e:React.FormEvent)=>{
     e.preventDefault(); if(busy.current) return;
-    const value=Number(amount);
-    if (!pending && (!source || !destination || source === destination || !Number.isSafeInteger(value) || value<=0)) { setMessage("Chọn hai ví khác nhau và nhập số tiền lớn hơn 0."); return; }
-    const attempt=pending || {id:crypto.randomUUID(),source,destination,amount:value};
+    const value=parseMoney(amount,sourceCurrency);
+    const receivedValue=crossCurrency ? parseMoney(received,destinationCurrency) : value;
+    if (!pending && (!source || !destination || source === destination || value === null || value<=0 || receivedValue === null || receivedValue<=0)) { setMessage("Chọn hai ví khác nhau và nhập số tiền hợp lệ lớn hơn 0."); return; }
+    const attempt=pending || {id:crypto.randomUUID(),source,destination,amount:value!,destinationAmount:receivedValue!};
     try { localStorage.setItem(pendingKey,JSON.stringify(attempt)); }
     catch { setMessage("Không thể lưu trạng thái xác nhận trên thiết bị. Hãy kiểm tra bộ nhớ trình duyệt."); return; }
     setPending(attempt); busy.current=true; setLoading(true); setMessage("");
     try {
-      const result=await client.rpc("wallet_transfer_create",{p_id:attempt.id,p_source:attempt.source,p_destination:attempt.destination,p_amount:attempt.amount});
+      const result=await client.rpc("wallet_transfer_create_v2",{p_id:attempt.id,p_source:attempt.source,p_destination:attempt.destination,p_amount:attempt.amount,p_destination_amount:attempt.destinationAmount ?? attempt.amount});
       if (result.error) {
-        // A definitive validation/permission error means the transfer was not committed.
         if (["22023","42501","23505"].includes(result.error.code || "")) {
           localStorage.removeItem(pendingKey); setPending(null); setMessage("Không thể chuyển: ví không còn khả dụng hoặc dữ liệu không hợp lệ. Hãy tải lại và thử lại.");
         } else setMessage("Chưa xác nhận được kết quả. Hãy nhấn Kiểm tra lại; ứng dụng sẽ không ghi trùng.");
@@ -53,11 +60,13 @@ export function TransferForm({client, userId, wallets, onDone, onCancel}: {clien
     } catch { setMessage("Chưa xác nhận được kết quả. Hãy nhấn Kiểm tra lại; ứng dụng sẽ không ghi trùng."); }
     finally {busy.current=false;setLoading(false);}
   };
+  const options=(selected:string)=><>{selected && !wallets.some(w=>w.ref===selected) && <option value={selected}>Ví không còn khả dụng</option>}{wallets.map(w=><option key={w.ref} value={w.ref}>{w.name} · {walletCurrency(w.currency)}</option>)}</>;
   return <form className="transfer-form" onSubmit={submit}>
-    <p className="modal-desc">Chuyển giữa các ví bạn có quyền sử dụng. Khoản chuyển không tính vào thu nhập, chi tiêu hay ngân sách.</p>
-    <label>Từ ví<select value={source} onChange={e=>setSource(e.target.value)} disabled={!!pending || loading} required>{wallets.map(w=><option key={w.ref} value={w.ref}>{w.name} {w.ref.startsWith("p:") ? "· Cá nhân" : w.ownerId === userId ? "· Ví của bạn" : "· Ví gia đình"}</option>)}</select></label>
-    <label>Đến ví<select value={destination} onChange={e=>setDestination(e.target.value)} disabled={!!pending || loading} required>{wallets.map(w=><option key={w.ref} value={w.ref}>{w.name} {w.ref.startsWith("p:") ? "· Cá nhân" : w.ownerId === userId ? "· Ví của bạn" : "· Ví gia đình"}</option>)}</select></label>
-    <label>Số tiền (₫)<input type="number" inputMode="numeric" min="1" step="1" max="9007199254740991" value={amount} onChange={e=>setAmount(e.target.value)} disabled={!!pending || loading} required /></label>
+    <p className="modal-desc">Chỉ chuyển giữa các ví bạn sở hữu. Khoản chuyển không tính vào thu nhập, chi tiêu hay ngân sách.</p>
+    <label>Từ ví<select value={source} onChange={e=>{setSource(e.target.value);setAmount("");setReceived("");}} disabled={!!pending || loading} required>{options(source)}</select></label>
+    <label>Đến ví<select value={destination} onChange={e=>{setDestination(e.target.value);setReceived("");}} disabled={!!pending || loading} required>{options(destination)}</select></label>
+    <label>Số tiền gửi ({sourceCurrency})<input type="text" inputMode={sourceCurrency === "USD" ? "decimal" : "numeric"} value={amount} onChange={e=>setAmount(e.target.value)} disabled={!!pending || loading} required /></label>
+    {crossCurrency && <><label>Số tiền thực nhận ({destinationCurrency})<input type="text" inputMode={destinationCurrency === "USD" ? "decimal" : "numeric"} value={received} onChange={e=>setReceived(e.target.value)} disabled={!!pending || loading} required /></label><p className="modal-desc">Nhập số thực nhận sau quy đổi và phí; ứng dụng không tự tính tỷ giá.</p></>}
     {message && <p className="avatar-error" role="alert">{message}</p>}
     <button className="primary-btn form-submit" disabled={!ready || loading || (!pending && wallets.length<2)}>{loading ? "Đang xác nhận..." : pending ? "Kiểm tra lại" : "Chuyển tiền"}</button>
     <button type="button" className="outline-btn form-submit" disabled={loading} onClick={onCancel}>Đóng</button>
