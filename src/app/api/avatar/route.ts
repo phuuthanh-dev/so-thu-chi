@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { v2 as cloudinary } from "cloudinary";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const marker = /^cloudinary:(thu-chi\/avatars\/([0-9a-f-]{36})\/([0-9a-f-]{36}))\.(webp|jpg)$/;
 async function authenticated(request: Request) {
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 }
 export async function GET(request: Request) {
   const session = await authenticated(request);
-  if (!session) return new Response(null,{status:401});
+  if (!session) return new Response(null,{status:401,headers:{"Cache-Control":"no-store"}});
   if (!process.env.CLOUDINARY_URL) return new Response(null,{status:503});
   const owner = new URL(request.url).searchParams.get("owner") || "";
   if (!/^[0-9a-f-]{36}$/.test(owner)) return new Response(null,{status:400});
@@ -46,15 +46,19 @@ export async function GET(request: Request) {
     avatar = result.data?.[0]?.data?.avatar;
   } else {
     const result = await session.client.rpc("family_status");
-    if (result.error || result.data?.status !== "active") return new Response(null,{status:403});
+    if (result.error || result.data?.status !== "active") return new Response(null,{status:403,headers:{"Cache-Control":"no-store"}});
     avatar = result.data.members?.find((m:{userId:string}) => m.userId === owner)?.avatar;
   }
   const parsed = typeof avatar === "string" ? marker.exec(avatar) : null;
-  if (!parsed || parsed[2] !== owner) return new Response(null,{status:404});
+  if (!parsed || parsed[2] !== owner) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});
+  // Authorization is always checked before validating the browser's private cache.
+  const etag = `"${createHash("sha256").update(avatar as string).digest("hex")}"`;
+  const cacheHeaders = {"Cache-Control":"private, no-cache", "Vary":"Authorization", "ETag":etag, "X-Content-Type-Options":"nosniff"};
+  if (request.headers.get("if-none-match")?.split(",").some(value => value.trim() === etag)) return new Response(null,{status:304,headers:cacheHeaders});
   try {
     const signedUrl = cloudinary.utils.private_download_url(parsed[1],parsed[4],{type:"authenticated",resource_type:"image",expires_at:Math.floor(Date.now()/1000)+60,attachment:false});
-    const response = await fetch(signedUrl,{cache:"no-store",redirect:"error"});
+    const response = await fetch(signedUrl,{cache:"no-store",redirect:"error",signal:AbortSignal.timeout(8000)});
     if (!response.ok) return new Response(null,{status:502});
-    return new Response(response.body,{headers:{"Content-Type":`image/${parsed[4] === "jpg" ? "jpeg" : "webp"}`,"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
+    return new Response(response.body,{headers:{...cacheHeaders,"Content-Type":`image/${parsed[4] === "jpg" ? "jpeg" : "webp"}`}});
   } catch { return new Response(null,{status:502}); }
 }

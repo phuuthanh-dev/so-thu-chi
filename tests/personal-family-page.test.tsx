@@ -136,3 +136,29 @@ it("giao dịch cùng ví có cùng thứ tự giờ tạo ở cá nhân và gia
   await user.click(within(daily).getByText("Xem 3 khoản chi"));
   expect(names(daily)).toEqual(["Chung mới","Chung cũ","Chung chưa rõ"]);
 },15000);
+
+it("khôi phục trang và sổ gia đình sau khi kéo làm mới",async()=>{
+  sessionStorage.setItem("nha-minh-refresh-location:u1",JSON.stringify({tab:"wallets",family:true,month:"2025-01",dailyDate:"2025-01-05"}));
+  render(<Page/>);
+  await screen.findByRole("button",{name:"Nhà mình"});
+  expect(await screen.findByText("Ví của người kia")).toBeTruthy();
+  expect(screen.queryByText("Ví cá nhân")).toBeNull();
+  expect(sessionStorage.getItem("nha-minh-refresh-location:u1")).toBeNull();
+});
+
+it("chặn tải lại khi đang chọn ví để chuyển vào gia đình",async()=>{
+  const user=userEvent.setup();render(<Page/>);await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button",{name:"Quản lý gia đình"}));
+  const choice=await screen.findByRole("checkbox",{name:"Ví cá nhân"});await user.click(choice);
+  await waitFor(()=>{const event=new Event("beforeunload",{cancelable:true});window.dispatchEvent(event);expect(event.defaultPrevented).toBe(true);});
+  await user.click(choice);
+  await waitFor(()=>{const event=new Event("beforeunload",{cancelable:true});window.dispatchEvent(event);expect(event.defaultPrevented).toBe(false);});
+});
+
+it("giữ tháng và ngày đang xem sau khi kéo làm mới",async()=>{
+  sessionStorage.setItem("nha-minh-refresh-location:u1",JSON.stringify({tab:"overview",family:true,month:"2025-01",dailyDate:"2025-01-05"}));
+  render(<Page/>);await screen.findByRole("button",{name:"Nhà mình"});
+  const daily=await screen.findByRole("region",{name:"Chi tiêu theo ngày"});
+  expect((within(daily).getByLabelText("Ngày") as HTMLInputElement).value).toBe("2025-01-05");
+  expect(screen.getByText("Tháng 1, 2025")).toBeTruthy();
+});

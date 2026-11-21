@@ -24,15 +24,17 @@ export function captureFamilyInvitation() {
   }
 }
 
-export function FamilyManager({ client, userId, family, onFamily, personal, wallets, personalVersion, disabled, refresh, switchWorkspace }: {
+export function FamilyManager({ client, userId, family, onFamily, personal, wallets, personalVersion, disabled, refresh, switchWorkspace, onRefreshBlockChange }: {
   client: SupabaseClient; userId: string; family: Family | null; onFamily: (family: Family | null) => void;
   personal: boolean; wallets: Wallet[]; personalVersion: () => number | null; disabled: boolean; refresh: () => Promise<void>;
-  switchWorkspace: (family: Family | null) => void;
+  switchWorkspace: (family: Family | null) => void; onRefreshBlockChange?: (blocked: boolean) => void;
 }) {
   const [loading, setLoading] = useState(false), [message, setMessage] = useState("");
   const [name, setName] = useState("Nhà mình"), [link, setLink] = useState("");
   const [invitation, setInvitation] = useState("");
   const [choices, setChoices] = useState<Choice[]>([]);
+  useEffect(() => { onRefreshBlockChange?.(loading || choices.length > 0 || !!link || (!family && name !== "Nhà mình")); }, [onRefreshBlockChange,loading,choices,link,family,name]);
+  useEffect(() => () => onRefreshBlockChange?.(false), [onRefreshBlockChange]);
   const load = useCallback(async () => {
     const { data, error } = await client.rpc("family_status");
     if (error) { setMessage("Không tải được thông tin gia đình. Vui lòng thử lại."); return; }

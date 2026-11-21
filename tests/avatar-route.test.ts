@@ -31,6 +31,22 @@ it("chỉ trả ảnh Cloudinary đã xác thực cho thành viên được phé
   fixture.download.mockReturnValue("https://cloudinary.example/signed");
   vi.stubGlobal("fetch",vi.fn(async()=>new Response(new Uint8Array([1,2,3]),{status:200})));
   const result=await GET(new Request(`https://app.test/api/avatar?owner=${owner}`,{headers:{authorization:"Bearer token"}}));
-  expect(result.status).toBe(200);expect(result.headers.get("cache-control")).toBe("private, no-store");
+  expect(result.status).toBe(200);expect(result.headers.get("cache-control")).toBe("private, no-cache");expect(result.headers.get("vary")).toBe("Authorization");expect(result.headers.get("etag")).toBeTruthy();
   expect(fixture.download).toHaveBeenCalledWith(expect.stringContaining(owner),"webp",expect.objectContaining({type:"authenticated"}));
+});
+
+it("trả 304 chỉ sau khi kiểm tra quyền, và tải ảnh mới khi avatar thay đổi",async()=>{
+  const owner="00000000-0000-0000-0000-000000000202";
+  fixture.memberAvatar=`cloudinary:thu-chi/avatars/${owner}/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.webp`;
+  fixture.download.mockReturnValue("https://cloudinary.example/signed");
+  const fetchMock=vi.fn(async()=>new Response(new Uint8Array([1,2,3]),{status:200}));vi.stubGlobal("fetch",fetchMock);
+  const req=()=>new Request(`https://app.test/api/avatar?owner=${owner}`,{headers:{authorization:"Bearer token"}});
+  const first=await GET(req());const etag=first.headers.get("etag")!;
+  const second=await GET(new Request(req(),{headers:{authorization:"Bearer token","if-none-match":etag}}));
+  expect(second.status).toBe(304);expect(fetchMock).toHaveBeenCalledTimes(1);
+  fixture.memberStatus="pending";
+  expect((await GET(new Request(req(),{headers:{authorization:"Bearer token","if-none-match":etag}}))).status).toBe(403);
+  fixture.memberStatus="active";fixture.memberAvatar=`cloudinary:thu-chi/avatars/${owner}/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.webp`;
+  const changed=await GET(new Request(req(),{headers:{authorization:"Bearer token","if-none-match":etag}}));
+  expect(changed.status).toBe(200);expect(changed.headers.get("etag")).not.toBe(etag);expect(fetchMock).toHaveBeenCalledTimes(2);
 });

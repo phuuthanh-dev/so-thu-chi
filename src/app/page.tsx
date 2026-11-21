@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { brandLogo } from "@/lib/branding";
+import { brandLogoDisplay } from "@/lib/branding";
 import { prepareAvatar, validateAvatarFile, type AvatarCrop } from "@/lib/avatar";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { PetalFall } from "./petals";
 import { AvatarEditor } from "./avatar-editor";
+import { PullToRefresh } from "./pull-to-refresh";
 import { SecureAvatar, uploadAvatar } from "./secure-avatar";
 import { TransferForm, transferDelta, type TransferState } from "./wallet-transfers";
 import { Report } from "./report";
@@ -113,6 +114,20 @@ const nav = [
   { id: "family", label: "Quản lý gia đình", Icon: Users },
 ];
 
+type RefreshLocation = { tab: string; family: boolean; month?: string; dailyDate?: string };
+const refreshLocationKey = (userId: string) => `nha-minh-refresh-location:${userId}`;
+function readRefreshLocation(userId: string): RefreshLocation | null {
+  try {
+    const value = sessionStorage.getItem(refreshLocationKey(userId));
+    if (!value) return null;
+    const parsed = JSON.parse(value) as RefreshLocation;
+    if (typeof parsed.family !== "boolean" || !(parsed.tab === "settings" || nav.some(item => item.id === parsed.tab))) return null;
+    return {tab:parsed.tab,family:parsed.family,
+      month:typeof parsed.month === "string" && /^\d{4}-\d{2}$/.test(parsed.month) ? parsed.month : undefined,
+      dailyDate:typeof parsed.dailyDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.dailyDate) ? parsed.dailyDate : undefined};
+  } catch { return null; }
+}
+
 gsap.registerPlugin(useGSAP);
 
 export default function Page() {
@@ -140,32 +155,46 @@ function Workspaces({ client, user, motionEnabled, toggleMotion }: { client: Sup
   const [workspace, setWorkspace] = useState<Family | null>(null);
   const [family, setFamily] = useState<Family | null>(null);
   const [dailyDate, setDailyDate] = useState("");
+  const [resumeReady, setResumeReady] = useState(false);
+  const resumeFamily = useRef(false);
   const familySequence = useRef(0);
   const alive = useRef(false);
   const reloadFamily = useCallback(async () => {
     const seq = ++familySequence.current;
     try {
       const { data, error } = await client.rpc("family_status");
-      if (alive.current && seq === familySequence.current && !error) setFamily(data as Family | null);
+      if (alive.current && seq === familySequence.current && !error) {
+        const value = data as Family | null;
+        setFamily(value);
+        if (resumeFamily.current && value?.status === "active") setWorkspace(value);
+      }
     } catch { /* The personal ledger remains available. */ }
+    finally { if (alive.current && seq === familySequence.current && resumeFamily.current) { resumeFamily.current = false; setResumeReady(true); } }
   }, [client]);
   const acceptFamily = useCallback((value: Family | null) => { familySequence.current++; setFamily(value); }, []);
   useEffect(() => {
     alive.current = true;
-    void Promise.resolve().then(() => { setDailyDate(previous => previous || dateISO()); void reloadFamily(); });
+    void Promise.resolve().then(() => {
+      const location = readRefreshLocation(user.id);
+      setDailyDate(previous => previous || location?.dailyDate || dateISO());
+      resumeFamily.current = !!location?.family;
+      if (!resumeFamily.current) setResumeReady(true);
+      void reloadFamily();
+    });
     const timer = window.setInterval(() => void reloadFamily(), 20000);
     const onFocus = () => void reloadFamily();
     window.addEventListener("focus", onFocus);
     return () => { alive.current = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
-  }, [reloadFamily]);
+  }, [reloadFamily, user.id]);
+  if (!resumeReady) return <main className="loading">Đang chuẩn bị sổ thu chi...</main>;
   return <Ledger key={workspace?.id || "personal"} client={client} user={user} motionEnabled={motionEnabled} toggleMotion={toggleMotion} workspace={workspace} family={family} dailyDate={dailyDate} setDailyDate={setDailyDate} setFamily={acceptFamily} refreshFamily={reloadFamily} setWorkspace={setWorkspace} />;
 }
 
 function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, dailyDate, setDailyDate, setFamily, refreshFamily, setWorkspace }: { client: SupabaseClient; user: User; motionEnabled: boolean; toggleMotion: () => void; workspace: Family | null; family: Family | null; dailyDate: string; setDailyDate: (date: string) => void; setFamily: (family: Family | null) => void; refreshFamily: () => Promise<void>; setWorkspace: (family: Family | null) => void }) {
   const draftOwner = workspace ? `${user.id}:family:${workspace.id}` : user.id;
   const [data, setData] = useState<Data | null>(null),
-    [tab, setTab] = useState("overview"),
-    [month, setMonth] = useState(""),
+    [tab, setTab] = useState(() => readRefreshLocation(user.id)?.tab || "overview"),
+    [month, setMonth] = useState(() => readRefreshLocation(user.id)?.month || ""),
     [modal, setModal] = useState<
       "entry" | "wallet" | "budget" | "category" | "rule" | "avatar" | "transfer" | null
     >(null),
@@ -193,6 +222,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     [categoryEditName, setCategoryEditName] = useState(""),
     [categoryEditError, setCategoryEditError] = useState(""),
     [ruleId, setRuleId] = useState<string | null>(null);
+  useEffect(() => { try { sessionStorage.removeItem(refreshLocationKey(user.id)); } catch { /* Optional state. */ } }, [user.id]);
   const [appearances, setAppearances] = useState<CategoryAppearanceRecord[]>([]);
   const [appearanceReady, setAppearanceReady] = useState(false);
   const [appearanceError, setAppearanceError] = useState("");
@@ -206,6 +236,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   const [transfers, setTransfers] = useState<TransferState | null>(null);
   const [transferError, setTransferError] = useState("");
   const transferSequence = useRef(0);
+  const [familyRefreshBlocked, setFamilyRefreshBlocked] = useState(false);
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -394,7 +425,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   useEffect(() => {
     Promise.resolve().then(() => {
       const today = dateISO();
-      setMonth(today.slice(0, 7));
+      setMonth(previous => previous || today.slice(0, 7));
       setDate(today);
       if (sessionStorage.getItem("nha-minh-family-invitation")) setTab("family");
       updateDrafts();
@@ -758,6 +789,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   return (
     <div className={`app-shell${motionEnabled ? "" : " motion-off"}`}>
       <PetalFall enabled={motionEnabled} />
+      <PullToRefresh isBlocked={() => busyRef.current || dirtyRef.current || !!modalRef.current || menu || editingName || familyRefreshBlocked} reload={() => {
+        try { sessionStorage.setItem(refreshLocationKey(user.id), JSON.stringify({tab,family:!!workspace,month,dailyDate})); } catch { /* Refresh still works when storage is unavailable. */ }
+        window.location.reload();
+      }} />
       {busy && (
         <div className="saving-overlay" role="status">
           Đang lưu...
@@ -766,7 +801,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
       <aside ref={sidebarRef} id="sidebar-navigation" className={`sidebar ${menu ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">
-            <Image src={brandLogo} alt="" width={38} height={38} unoptimized />
+            <Image src={brandLogoDisplay} alt="" width={38} height={38} unoptimized />
           </div>
           <div>
             <strong>
@@ -1201,7 +1236,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               </div>
             </>
           )}
-          {tab === "family" && <FamilyManager client={client} userId={user.id} family={family} onFamily={setFamily} personal={!workspace} wallets={data.wallets.filter(item => !item.ownerId)} personalVersion={() => typeof version.current === "string" ? Number(version.current.split(":")[0]) : version.current} disabled={busy || !!syncError} refresh={() => refresh(true)} switchWorkspace={switchLedger} />}
+          {tab === "family" && <FamilyManager client={client} userId={user.id} family={family} onFamily={setFamily} personal={!workspace} wallets={data.wallets.filter(item => !item.ownerId)} personalVersion={() => typeof version.current === "string" ? Number(version.current.split(":")[0]) : version.current} disabled={busy || !!syncError} refresh={() => refresh(true)} switchWorkspace={switchLedger} onRefreshBlockChange={setFamilyRefreshBlocked} />}
           {tab === "reports" && <Report entries={data.entries} month={month} onSelectMonth={setMonth} appearances={appearances} />}
           {tab === "transactions" && (
             <section className="card full-card">
