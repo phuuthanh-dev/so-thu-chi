@@ -7,6 +7,10 @@ import { prepareAvatar } from "../src/lib/avatar";
 type AppearanceFixture = {kind: string; category: string; icon_key: string | null; color_key: string | null; revision: number};
 const server = vi.hoisted(() => ({ data: {} as Record<string, unknown>, appearances: [] as AppearanceFixture[], version: 0, offline: false, saveFails: false }));
 vi.mock("../src/lib/avatar", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/avatar")>()), prepareAvatar: vi.fn() }));
+vi.mock("../src/app/secure-avatar", () => ({
+  uploadAvatar: vi.fn(async (_client: unknown, image: string) => `cloudinary:test/${image.endsWith("YQ==") ? "first" : "second"}`),
+  SecureAvatar: ({avatar,fallback}:{avatar?:string|null;fallback:string}) => avatar ? React.createElement("img",{src:avatar,alt:""}) : fallback,
+}));
 vi.mock("../src/app/avatar-editor", () => ({ AvatarEditor: ({ onSave, onCancel, error }: { onSave: (crop: { zoom: number; x: number; y: number }) => void; onCancel: () => void; error: string }) => <div>{error && <p role="alert">{error}</p>}<button onClick={() => onSave({ zoom: 2, x: 25, y: 75 })}>Lưu ảnh</button><button onClick={onCancel}>Hủy</button></div> }));
 vi.mock("../src/app/auth", () => ({
   AuthGate: ({ children }: { children: (client: unknown, user: unknown) => React.ReactNode }) => children({
@@ -32,6 +36,7 @@ vi.mock("../src/app/auth", () => ({
         server.data.displayName = args?.p_display_name; server.version++;
         return {data:[{version:server.version,display_name:server.data.displayName}],error:null};
       }
+      if (name === "wallet_transfer_state") return {data:{wallets:(server.data.wallets as {id:string; name:string}[]).map(w => ({ref:`p:${w.id}`,walletId:w.id,name:w.name,ownerId:"test-user"})),legs:[]},error:null};
       if (name === "family_status") return { data: null, error: null };
       if (name === "family_recurring_status") return { data: null, error: { code: "42501" } };
       if (name === "recurring_status") return { data: [], error: null };
@@ -81,11 +86,11 @@ it("lưu, thay và xóa ảnh đại diện theo tài khoản mà giữ giao d�
   await user.upload(screen.getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
   expect(server.version).toBe(0);
   await user.click(screen.getByRole("button", { name: "Lưu ảnh" }));
-  await waitFor(() => expect(server.data.avatar).toBe("data:image/webp;base64,YQ=="));
+  await waitFor(() => expect(server.data.avatar).toBe("cloudinary:test/first"));
   expect(prepareAvatar).toHaveBeenCalledWith(expect.any(File), { zoom: 2, x: 25, y: 75 });
   await user.upload(screen.getByLabelText("Đổi ảnh"), new File(["b"], "avatar2.png", { type: "image/png" }));
   await user.click(screen.getByRole("button", { name: "Lưu ảnh" }));
-  await waitFor(() => expect(server.data.avatar).toBe("data:image/webp;base64,Yg=="));
+  await waitFor(() => expect(server.data.avatar).toBe("cloudinary:test/second"));
   expect((server.data.entries as { amount: number }[])[0].amount).toBe(100);
   await user.click(screen.getByRole("button", { name: "Xóa ảnh" }));
   await waitFor(() => expect(server.data.avatar).toBeNull());
@@ -112,9 +117,9 @@ it("ảnh đại diện đồng bộ sang một phiên khác khi làm mới", as
   await user.click(within(first.container).getByRole("button", { name: "Mở tài khoản" }));
   await user.upload(within(first.container).getByLabelText("Chọn ảnh"), new File(["a"], "avatar.png", { type: "image/png" }));
   await user.click(within(first.container).getByRole("button", { name: "Lưu ảnh" }));
-  await waitFor(() => expect(server.data.avatar).toBe("data:image/webp;base64,YQ=="));
+  await waitFor(() => expect(server.data.avatar).toBe("cloudinary:test/first"));
   fireEvent.focus(window);
-  await waitFor(() => expect(within(second.container).getByRole("button", { name: "Mở tài khoản" }).querySelector("img")?.getAttribute("src")).toBe("data:image/webp;base64,YQ=="));
+  await waitFor(() => expect(within(second.container).getByRole("button", { name: "Mở tài khoản" }).querySelector("img")?.getAttribute("src")).toBe("cloudinary:test/first"));
 });
 
 it("không lưu ảnh nếu tài khoản đã đóng trong lúc xử lý", async () => {

@@ -1,11 +1,14 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { brandLogo } from "@/lib/branding";
 import { prepareAvatar, validateAvatarFile, type AvatarCrop } from "@/lib/avatar";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { PetalFall } from "./petals";
 import { AvatarEditor } from "./avatar-editor";
+import { SecureAvatar, uploadAvatar } from "./secure-avatar";
+import { TransferForm, transferDelta, type TransferState } from "./wallet-transfers";
 import { Report } from "./report";
 import { CategoryIcon } from "./category-icon";
 import { CategoryAppearancePicker } from "./category-appearance-picker";
@@ -164,7 +167,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     [tab, setTab] = useState("overview"),
     [month, setMonth] = useState(""),
     [modal, setModal] = useState<
-      "entry" | "wallet" | "budget" | "category" | "rule" | "avatar" | null
+      "entry" | "wallet" | "budget" | "category" | "rule" | "avatar" | "transfer" | null
     >(null),
     [kind, setKind] = useState<Kind>("expense"),
     [amount, setAmount] = useState(""),
@@ -200,6 +203,9 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   const [nameInput, setNameInput] = useState("");
   const [originalName, setOriginalName] = useState("");
   const [nameError, setNameError] = useState("");
+  const [transfers, setTransfers] = useState<TransferState | null>(null);
+  const [transferError, setTransferError] = useState("");
+  const transferSequence = useRef(0);
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -247,6 +253,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   }, [menu, modal]);
   const familyRef = useRef(family);
   useEffect(() => { familyRef.current = family; }, [family]);
+  const avatarMigrationAttempt = useRef<string | null>(null);
   const version = useRef<number | string | null>(null),
     busyRef = useRef(false),
     dirtyRef = useRef(false),
@@ -291,6 +298,25 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     [loadError, setLoadError] = useState(""),
     [recurringError, setRecurringError] = useState(""),
     [drafts, setDrafts] = useState<Draft<Data>[]>([]);
+  const loadTransfers = useCallback(async () => {
+    const sequence = ++transferSequence.current;
+    try {
+      const result = await client.rpc("wallet_transfer_state");
+      if (result.error || !result.data || !Array.isArray(result.data.wallets) || !Array.isArray(result.data.legs)) throw result.error || new Error("Invalid transfer state");
+      if (mountedRef.current && sequence === transferSequence.current) { setTransfers(result.data as TransferState); setTransferError(""); }
+    } catch {
+      if (mountedRef.current && sequence === transferSequence.current) { setTransfers(null); setTransferError("Không tải được lịch sử chuyển ví; số dư tạm thời không hiển thị. Hãy kiểm tra kết nối."); }
+    }
+  }, [client]);
+  useEffect(() => {
+    void Promise.resolve().then(() => loadTransfers());
+    const timer=window.setInterval(() => void loadTransfers(),20000);
+    const onFocus=() => void loadTransfers();
+    window.addEventListener("focus",onFocus);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus",onFocus); };
+  }, [loadTransfers]);
+  const walletRef = (item: WalletItem) => `${item.ownerId ? "f" : "p"}:${item.id}`;
+  const walletTotal = (item: WalletItem, entries: Entry[]) => transfers === null ? null : calculateWalletBalance(item.balance,item.id,entries,dateISO()) + transferDelta(transfers.legs,walletRef(item));
   const updateDrafts = useCallback(() => {
     try {
       setDrafts(listDrafts<Data>(localStorage, draftOwner));
@@ -316,6 +342,24 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
           return;
         version.current = workspace ? Number(rows[0].version) : String(rows[0].version);
         setData(rows[0].data as Data);
+        const oldAvatar = (rows[0].data as Data).avatar;
+        if (!workspace && oldAvatar && /^data:image\/(webp|jpeg);base64,[A-Za-z0-9+/=]+$/.test(oldAvatar) && avatarMigrationAttempt.current !== oldAvatar) {
+          avatarMigrationAttempt.current = oldAvatar;
+          void (async () => {
+            try {
+              const uploaded = await uploadAvatar(client, oldAvatar);
+              const result = await client.rpc("account_migrate_avatar", { p_expected: oldAvatar, p_avatar: uploaded });
+              if (!result.error && result.data && mountedRef.current && !busyRef.current && !dirtyRef.current && !modalRef.current) {
+                const current = version.current;
+                const reloaded = await client.rpc("personal_combined_open");
+                if (!reloaded.error && reloaded.data?.[0] && mountedRef.current && !busyRef.current && !dirtyRef.current && !modalRef.current && version.current === current) {
+                  version.current = String(reloaded.data[0].version);
+                  setData(reloaded.data[0].data as Data);
+                }
+              }
+            } catch { /* Keep the original avatar intact; retry after a fresh session. */ }
+          })();
+        }
         setLoadError("");
         if (force) {
           dirtyRef.current = false;
@@ -581,8 +625,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
         </>)}
       </main>
     );
-  const avatar = data.avatar && /^data:image\/(webp|jpeg);base64,/.test(data.avatar) ? data.avatar : null;
-  const renderAvatar = () => avatar ? <Image src={avatar} alt="" width={40} height={40} unoptimized /> : "M";
+  const avatar = data.avatar || null;
+  const renderAvatar = () => <SecureAvatar client={client} ownerId={user.id} avatar={avatar} fallback="M" revision={busy} />;
   const closeModal = () => { setModal(null); setAvatarFile(null); setAvatarError(""); setEditingCategory(null); setCategoryEditError(""); };
   const saveCategoryEdit = async () => {
     if (editingCategory === null || busyRef.current || version.current === null) return;
@@ -646,8 +690,10 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     try {
       const image = await prepareAvatar(avatarFile, crop);
       if (!mountedRef.current) return;
+      const uploaded = await uploadAvatar(client, image);
+      if (!mountedRef.current) return;
       busyRef.current = false;
-      if (save({ ...data, avatar: image })) closeModal();
+      if (save({ ...data, avatar: uploaded })) closeModal();
       else setBusy(false);
     } catch (error) {
       if (!mountedRef.current) return;
@@ -720,7 +766,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
       <aside ref={sidebarRef} id="sidebar-navigation" className={`sidebar ${menu ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">
-            <Image src="/logo.png" alt="" width={38} height={38} />
+            <Image src={brandLogo} alt="" width={38} height={38} unoptimized />
           </div>
           <div>
             <strong>
@@ -1147,14 +1193,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                         <small>Số dư theo ghi chép</small>
                       </div>
                       <b>
-                        {money(
-                          calculateWalletBalance(
-                            w.balance,
-                            w.id,
-                            data.entries,
-                            dateISO(),
-                          ),
-                        )}
+                        {transfers === null ? "—" : money(walletTotal(w, data.entries)!)}
                       </b>
                     </div>
                   ))}
@@ -1222,6 +1261,9 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   <Plus size={16} /> Thêm ví
                 </button>
               </div>
+              {transferError && <p className="avatar-error" role="alert">{transferError}</p>}
+              <button className="outline-btn transfer-open" disabled={!transfers || !!syncError || busy || transfers.wallets.length < 2} onClick={() => setModal("transfer")}><Repeat2 size={16} aria-hidden="true" /> Chuyển giữa các ví</button>
+              {transfers && transfers.wallets.length < 2 && <p className="footnote">Cần ít nhất hai ví đang sử dụng để chuyển tiền.</p>}
               {data.wallets.filter((w) => !w.archived).map((w) => (
                 <div className="wallet-row large wallet-manage" key={w.id}>
                   <span className="wallet-icon">
@@ -1234,14 +1276,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     {w.note && <small>{w.note}</small>}
                   </div>
                   <b>
-                    {money(
-                      calculateWalletBalance(
-                        w.balance,
-                        w.id,
-                        data.entries,
-                        dateISO(),
-                      ),
-                    )}
+                    {transfers === null ? "—" : money(walletTotal(w, data.entries)!)}
                   </b>
                   {(!workspace || w.ownerId === user.id) && <div className="wallet-actions">
                     <button className="wallet-action" aria-label={`Sửa ví ${w.name}`} onClick={() => {
@@ -1251,7 +1286,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                       setWalletVisibility(w.visibility || "private"); setWalletOwner(w.ownerId || user.id); setWalletNote(w.note || "");
                       setModal("wallet");
                     }}>Sửa</button>
-                    <button className="wallet-action wallet-remove" aria-label={`Xóa ví ${w.name}`} onClick={() => {
+                    <button className="wallet-action wallet-remove" disabled={!transfers} aria-label={`Xóa ví ${w.name}`} onClick={() => {
                       if (data.wallets.filter((item) => !item.archived).length <= 1) {
                         alert("Cần giữ ít nhất một ví đang sử dụng. Hãy thêm ví khác trước khi xóa ví này.");
                         return;
@@ -1260,7 +1295,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                         alert("Ví này đang được dùng bởi giao dịch định kỳ. Hãy sửa các quy tắc định kỳ sang ví khác trước khi xóa.");
                         return;
                       }
-                      const used = data.entries.some((entry) => entry.wallet === w.id);
+                      const used = data.entries.some((entry) => entry.wallet === w.id) || !!transfers?.legs.some((leg) => leg.ref === walletRef(w));
                       if (!confirm(used
                         ? `Xóa ví “${w.name}” khỏi danh sách? Ví sẽ được lưu trữ để giữ lịch sử giao dịch và có thể khôi phục sau.`
                         : `Xóa ví “${w.name}”? Ví chưa có giao dịch và sẽ bị xóa khỏi sổ.`)) return;
@@ -1287,10 +1322,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   ))}
                 </div>
               )}
-              <p className="footnote">
-                Chưa hỗ trợ chuyển tiền giữa các ví. Số dư chỉ phản ánh giao
-                dịch được ghi trong ứng dụng.
-              </p>
+              {transfers && transfers.legs.some(leg => data.wallets.some(w => walletRef(w) === leg.ref)) && <div className="transfer-history"><h3>Lịch sử chuyển ví</h3>{transfers.legs.filter(leg => data.wallets.some(w => walletRef(w) === leg.ref)).map(leg => <div className="transfer-history-row" key={`${leg.id}:${leg.ref}`}><div><strong>{leg.direction === "out" ? "Chuyển đến" : "Nhận từ"} {leg.otherName}</strong><small>{data.wallets.find(w => walletRef(w) === leg.ref)?.name} · {leg.date.split("-").reverse().join("/")}</small></div><b>{leg.direction === "out" ? "−" : "+"}{money(leg.amount)}</b></div>)}</div>}
+              <p className="footnote">Chuyển ví chỉ thay đổi số dư, không tính vào thu chi.</p>
             </section>
           )}
           {tab === "budget" && (
@@ -1570,7 +1603,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <div>
                 <div className="card-kicker">SỔ THU CHI</div>
                 <h2>
-                  {modal === "avatar"
+                  {modal === "transfer" ? "Chuyển giữa các ví" : modal === "avatar"
                     ? "Điều chỉnh ảnh đại diện"
                     : modal === "rule"
                     ? "Sửa giao dịch định kỳ"
@@ -1593,6 +1626,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 <X size={21} />
               </button>
             </div>
+            {modal === "transfer" && transfers && <TransferForm client={client} userId={user.id} wallets={transfers.wallets} onCancel={closeModal} onDone={async () => { closeModal(); await loadTransfers(); await refresh(true); }} />}
             {modal === "avatar" && avatarFile && <AvatarEditor file={avatarFile} onSave={(crop) => void saveAvatar(crop)} onCancel={closeModal} error={avatarError} busy={busy} motionEnabled={motionEnabled} />}
             {(modal === "entry" || modal === "rule") && (
               <form onSubmit={submitEntry}>
@@ -1779,7 +1813,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                   {walletEditId && <label>Chủ sở hữu<select value={walletOwner} onChange={e => setWalletOwner(e.target.value)}>{family?.members.filter(m => m.status === "active").map(m => <option key={m.userId} value={m.userId}>{memberName(m, user.id)}</option>)}</select></label>}
                   <label>Ghi chú ví<input value={walletNote} maxLength={200} onChange={e => setWalletNote(e.target.value)} placeholder="Ví dụ: Ví của chồng" /></label>
                 </>}
-                <p className="modal-desc">Số dư hiện tại = số dư ban đầu + các khoản thu − các khoản chi đã ghi. Thay đổi số dư ban đầu sẽ thay đổi số dư hiện tại.</p>
+                <p className="modal-desc">Số dư hiện tại = số dư ban đầu + thu − chi + tiền nhận − tiền chuyển. Thay đổi số dư ban đầu sẽ thay đổi số dư hiện tại.</p>
                 <button className="primary-btn form-submit">{walletEditId ? "Lưu thay đổi" : "Thêm ví"}</button>
               </form>
             )}
