@@ -9,6 +9,7 @@ export async function journalSession(request:Request) {
   const result=await client.auth.getUser(token);
   return result.error || !result.data.user ? null : {client,user:result.data.user};
 }
+export type JournalSession = NonNullable<Awaited<ReturnType<typeof journalSession>>>;
 export async function cleanupJournalPhotos(session: NonNullable<Awaited<ReturnType<typeof journalSession>>>) {
   if (!process.env.CLOUDINARY_URL) return;
   const result=await session.client.rpc("journal_cleanup_list");

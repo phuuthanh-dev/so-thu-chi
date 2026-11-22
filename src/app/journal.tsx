@@ -19,11 +19,25 @@ const tokenFor=async(client:SupabaseClient)=>{
   return token;
 };
 const cleanup=async(client:SupabaseClient)=>{try {const token=await tokenFor(client);await fetch("/api/journal-cleanup",{method:"POST",headers:{Authorization:`Bearer ${token}`}});} catch {/* Retry on a later visit. */}};
+// Share only in-flight requests for the same session. Every later view still
+// revalidates permissions with the server before reusing the browser cache.
+const pendingPhotoRequests=new Map<string,Promise<Blob>>();
+function loadMemoryPhoto(token:string,id:string):Promise<Blob> {
+  const key=JSON.stringify([token,id]), existing=pendingPhotoRequests.get(key);
+  if(existing)return existing;
+  const request=(async()=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
+    try {const response=await fetch(`/api/journal-photo?id=${encodeURIComponent(id)}`,{headers:{Authorization:`Bearer ${token}`},cache:"no-cache",signal:controller.signal});if(!response.ok)throw new Error("Photo unavailable");return await response.blob();}
+    finally {clearTimeout(timer);}
+  })();
+  pendingPhotoRequests.set(key,request);
+  void request.finally(()=>{if(pendingPhotoRequests.get(key)===request)pendingPhotoRequests.delete(key);}).catch(()=>{});
+  return request;
+}
 function MemoryPhoto({client,id,alt}:{client:SupabaseClient;id:string;alt:string}) {
   const [url,setUrl]=useState<string|null>(null),[failed,setFailed]=useState(false);
-  useEffect(()=>{let alive=true, blobUrl:string|undefined;const controller=new AbortController();
-    void (async()=>{try {const token=await tokenFor(client); const response=await fetch(`/api/journal-photo?id=${encodeURIComponent(id)}`,{headers:{Authorization:`Bearer ${token}`},cache:"no-cache",signal:controller.signal}); if(!response.ok) throw new Error();const blob=await response.blob();if(!alive)return;blobUrl=URL.createObjectURL(blob);setUrl(blobUrl);}catch{if(alive && !controller.signal.aborted)setFailed(true);}})();
-    return ()=>{alive=false;controller.abort();if(blobUrl)URL.revokeObjectURL(blobUrl);};
+  useEffect(()=>{let alive=true, blobUrl:string|undefined;
+    void (async()=>{try {const token=await tokenFor(client);const blob=await loadMemoryPhoto(token,id);if(!alive)return;blobUrl=URL.createObjectURL(blob);setUrl(blobUrl);}catch{if(alive)setFailed(true);}})();
+    return ()=>{alive=false;if(blobUrl)URL.revokeObjectURL(blobUrl);};
   },[client,id]);
   return url ? <Image src={url} alt={alt} fill unoptimized sizes="(max-width:600px) 120px, 400px" /> : <span className="memory-image-placeholder" role="img" aria-label={failed ? "Không tải được ảnh" : "Đang tải ảnh"}><ImagePlus size={22} aria-hidden="true"/>{failed && <small>Chưa tải được ảnh</small>}</span>;
 }
@@ -31,6 +45,7 @@ export function Journal({client,userId,family,onRefreshBlockChange}:{client:Supa
   const [items,setItems]=useState<Memory[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState("");
   const [filter,setFilter]=useState<"all"|"private"|"family">("all"),[detail,setDetail]=useState<string|null>(null),[editor,setEditor]=useState<Editor|null>(null);
   const [pending,setPending]=useState<PhotoFile[]>([]),[remove,setRemove]=useState<string[]>([]),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
+  const [uploadProgress,setUploadProgress]=useState<{done:number;total:number}|null>(null);
   const editorDialog=useRef<HTMLFormElement>(null), detailDialog=useRef<HTMLElement>(null);
   const pendingRef=useRef<PhotoFile[]>([]),live=useRef(true),sequence=useRef(0),busyRef=useRef(false),editorRef=useRef<Editor|null>(null);
   useEffect(()=>{pendingRef.current=pending;},[pending]);
@@ -84,17 +99,40 @@ export function Journal({client,userId,family,onRefreshBlockChange}:{client:Supa
       if(result.error || typeof result.data!=="number") {if(result.error?.code==="40001") throw new Error("Bài này đã thay đổi trên thiết bị khác. Hãy sao chép nội dung đang viết, đóng và mở lại bài mới nhất.");throw new Error("Chưa lưu được bài viết. Hãy kiểm tra kết nối và thử lại.");}
       saved=true;setEditor(current=>current ? {...current,revision:result.data as number}:current);
       for(const id of remove){const deletion=await client.rpc("journal_photo_delete",{p_photo:id});if(deletion.error)throw new Error("Bài đã lưu nhưng chưa xóa được một ảnh. Hãy thử lại.");setRemove(current=>current.filter(x=>x!==id));setEditor(current=>current ? {...current,photos:current.photos.filter(x=>x!==id)}:current);}
-      for(const item of pendingRef.current){
-        const image=await prepareJournalPhoto(item.file), token=await tokenFor(client);
-        const response=await fetch("/api/journal-photo",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({entryId:editor.id,photoId:item.id,image})});
-        if(response.status===409)throw new Error("Ảnh đang được xử lý. Hãy đợi một chút rồi thử lại.");
-        if(!response.ok){pendingRef.current=pendingRef.current.map(p=>p.id===item.id ? {...p,id:crypto.randomUUID()} : p);setPending(pendingRef.current);throw new Error("Bài đã lưu nhưng chưa tải hết ảnh. Hãy thử lại.");}
-        URL.revokeObjectURL(item.preview);pendingRef.current=pendingRef.current.filter(p=>p.id!==item.id);setPending(pendingRef.current);
-        setEditor(current=>current ? {...current,photos:[...current.photos,item.id]}:current);
+      const photos=[...pendingRef.current];
+      if(photos.length){
+        const token=await tokenFor(client);let done=0;const succeeded=new Set<string>(),failed:string[]=[];
+        setUploadProgress({done:0,total:photos.length});
+        for(let start=0;start<photos.length;start+=3){
+          const batch=photos.slice(start,start+3);
+          const prepared=await Promise.allSettled(batch.map(item=>prepareJournalPhoto(item.file)));
+          const ready=batch.flatMap((item,index)=>prepared[index].status==="fulfilled" ? [{item,image:(prepared[index] as PromiseFulfilledResult<string>).value}] : []);
+          for(let index=0;index<batch.length;index++)if(prepared[index].status==="rejected")failed.push(batch[index].id);
+          if(ready.length){
+            try {
+              const response=await fetch("/api/journal-photos",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify(ready.map(({item,image})=>({entryId:editor.id,photoId:item.id,image})))});
+              if(!response.ok)throw new Error("upload failed");
+              const payload=await response.json();
+              if(!Array.isArray(payload.results) || payload.results.length!==ready.length)throw new Error("invalid response");
+              for(let index=0;index<ready.length;index++){
+                const item=ready[index].item,result=payload.results[index];
+                if(!result || result.id!==item.id || typeof result.status!=="number"){failed.push(item.id);continue;}
+                if(result.status!==200){
+                  if(result.status!==409){pendingRef.current=pendingRef.current.map(p=>p.id===item.id ? {...p,id:crypto.randomUUID()} : p);setPending(pendingRef.current);}
+                  failed.push(item.id);continue;
+                }
+                succeeded.add(item.id);URL.revokeObjectURL(item.preview);pendingRef.current=pendingRef.current.filter(p=>p.id!==item.id);setPending(pendingRef.current);
+              }
+            } catch {failed.push(...ready.map(({item})=>item.id));}
+          }
+          done+=batch.length;setUploadProgress({done,total:photos.length});
+        }
+        setEditor(current=>current ? {...current,photos:[...current.photos,...photos.filter(p=>succeeded.has(p.id)).map(p=>p.id)]}:current);
+        if(failed.length)throw new Error(`Bài đã lưu. Còn ${failed.length} ảnh chưa tải xong; hãy nhấn lưu để thử lại.`);
       }
       clearPending();setEditor(null);await load(true);void cleanup(client);
     } catch(err){setMessage(err instanceof Error ? err.message : saved ? "Bài đã lưu nhưng ảnh chưa tải xong. Hãy thử lại." : "Không thể lưu. Hãy thử lại.");}
-    finally{busyRef.current=false;if(live.current)setBusy(false);}
+    finally{busyRef.current=false;if(live.current){setBusy(false);setUploadProgress(null);}}
   };
   const deleteEntry=async(entry:Memory)=>{
     if(!confirm("Xóa kỷ niệm này và các ảnh trong bài?"))return;
@@ -123,7 +161,8 @@ export function Journal({client,userId,family,onRefreshBlockChange}:{client:Supa
       <div className="memory-photos-heading"><strong>Ảnh kỷ niệm</strong><span>Tối đa 8 ảnh · 10 MB/ảnh</span></div>
       <div className="memory-editor-photos">{editor.photos.filter(id=>!remove.includes(id)).map((id,index)=><div className="memory-editor-thumb" key={id}><MemoryPhoto client={client} id={id} alt={`Ảnh đã lưu ${index+1}`}/><button type="button" aria-label={`Xóa ảnh đã lưu ${index+1}`} disabled={busy} onClick={()=>setRemove([...remove,id])}><X size={15}/></button></div>)}{pending.map((item,index)=><div className="memory-editor-thumb" key={item.id}><Image src={item.preview} alt={`Ảnh mới ${index+1}`} fill unoptimized sizes="80px"/><button type="button" aria-label={`Bỏ ảnh mới ${index+1}`} disabled={busy} onClick={()=>{URL.revokeObjectURL(item.preview);setPending(pending.filter(p=>p.id!==item.id));}}><X size={15}/></button></div>)}<label className="memory-photo-add"><ImagePlus size={20} aria-hidden="true"/><span>Thêm ảnh</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={chooseFiles}/></label></div>
       {message && <p className="memory-error" role="alert">{message}</p>}
-      <button className="primary-btn form-submit" type="submit" disabled={busy}>{busy ? "Đang lưu kỷ niệm…" : "Lưu kỷ niệm"}</button>
+      <button className="primary-btn form-submit" type="submit" disabled={busy}>{busy ? uploadProgress ? `Đang tải ảnh ${uploadProgress.done}/${uploadProgress.total}…` : "Đang lưu kỷ niệm…" : "Lưu kỷ niệm"}</button>
+      {uploadProgress && <p className="memory-upload-progress" role="status">Đã xử lý {uploadProgress.done}/{uploadProgress.total} ảnh</p>}
     </form></div>}
   </>;
 }

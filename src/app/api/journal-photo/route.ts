@@ -1,6 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
 import { createHash } from "node:crypto";
 import { UUID, journalSession } from "@/lib/journal-server";
+import {uploadJournalPhotos} from "@/lib/journal-photo-upload";
 const noStore={"Cache-Control":"no-store"};
 export async function POST(request:Request) {
   const session=await journalSession(request);
@@ -9,27 +10,9 @@ export async function POST(request:Request) {
   if (Number(request.headers.get("content-length") || 0)>1_300_000) return Response.json({error:"Ảnh quá lớn."},{status:413});
   let data:{entryId?:unknown;photoId?:unknown;image?:unknown};
   try { data=await request.json(); } catch { return Response.json({error:"Ảnh không hợp lệ."},{status:400}); }
-  if (typeof data.entryId!=="string" || !UUID.test(data.entryId) || typeof data.photoId!=="string" || !UUID.test(data.photoId) || typeof data.image!=="string" || data.image.length>1_250_000) return Response.json({error:"Ảnh không hợp lệ."},{status:400});
-  const match=/^data:image\/(webp|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(data.image);
-  if (!match) return Response.json({error:"Ảnh không hợp lệ."},{status:400});
-  const bytes=Buffer.from(match[2],"base64"), format=match[1]==="jpeg" ? "jpg" : "webp";
-  if (!bytes.length || bytes.length>900_000 || (format==="jpg" ? !(bytes[0]===0xff && bytes[1]===0xd8 && bytes[2]===0xff) : !(bytes.subarray(0,4).toString()==="RIFF" && bytes.subarray(8,12).toString()==="WEBP"))) return Response.json({error:"Ảnh không hợp lệ."},{status:400});
-  const reserved=await session.client.rpc("journal_photo_reserve",{p_entry:data.entryId,p_photo:data.photoId,p_format:format});
-  if (reserved.error) return Response.json({error:"Không thể thêm ảnh. Mỗi bài tối đa 8 ảnh."},{status:400});
-  if (reserved.data==="ready") return Response.json({id:data.photoId},{headers:noStore});
-  if (reserved.data==="expired") return Response.json({error:"Ảnh chưa tải xong. Hãy thử lại."},{status:410,headers:noStore});
-  if (reserved.data!=="reserved") return Response.json({error:"Ảnh đang được xử lý. Hãy thử lại sau."},{status:409,headers:noStore});
-  const publicId=`thu-chi/memories/${session.user.id}/${data.photoId}`;
-  try {
-    const uploaded=await cloudinary.uploader.upload(data.image,{public_id:publicId,asset_folder:"thu-chi/memories",type:"authenticated",resource_type:"image",overwrite:false});
-    if (uploaded.public_id!==publicId || uploaded.type!=="authenticated" || uploaded.format!==format) throw new Error("Unexpected upload result");
-    const finished=await session.client.rpc("journal_photo_finish",{p_photo:data.photoId,p_success:true});
-    if (finished.error || !finished.data) throw new Error("Unable to attach photo");
-    return Response.json({id:data.photoId},{headers:noStore});
-  } catch {
-    await session.client.rpc("journal_photo_finish",{p_photo:data.photoId,p_success:false});
-    return Response.json({error:"Không tải được ảnh. Bạn có thể thử lại."},{status:503,headers:noStore});
-  }
+  if(!data || typeof data!=="object" || Array.isArray(data)) return Response.json({error:"Ảnh không hợp lệ."},{status:400,headers:noStore});
+  const [result]=await uploadJournalPhotos(session,[data]);
+  return Response.json(result.status===200 ? {id:result.id} : {error:result.error},{status:result.status,headers:noStore});
 }
 export async function GET(request:Request) {
   const session=await journalSession(request);
