@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import {cleanup,render,screen,waitFor,within} from "@testing-library/react";
+import {cleanup,fireEvent,render,screen,waitFor,within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {SupabaseClient} from "@supabase/supabase-js";
 import type {Family} from "../src/app/family";
@@ -23,10 +23,11 @@ it("tạo bài chia sẻ nhiều ảnh và đồng bộ sang phiên khác",async
  const first=render(<Journal client={client} userId={user} family={family} onRefreshBlockChange={()=>{}}/>);const second=render(<Journal client={client} userId={user} family={family} onRefreshBlockChange={()=>{}}/>);const a=within(first.container),b=within(second.container);const person=userEvent.setup();
  await person.click(await a.findByRole("button",{name:"Viết kỷ niệm"}));let dialog=within(a.getByRole("dialog"));
  await person.type(dialog.getByLabelText("Tiêu đề"),"Ngày đi biển");await person.type(dialog.getByLabelText("Câu chuyện"),"Nắng và biển");
+ fireEvent.change(dialog.getByLabelText("Ngày kỷ niệm"),{target:{value:"2026-10-15"}});expect(dialog.getByText("15/10/2026")).toBeTruthy();
  await person.click(dialog.getByLabelText(/Gia đình/));
  await person.upload(dialog.getByLabelText(/Thêm ảnh/),[new File(["a"],"a.jpg",{type:"image/jpeg"}),new File(["b"],"b.png",{type:"image/png"})]);
  await person.click(dialog.getByRole("button",{name:"Lưu kỷ niệm"}));
- await waitFor(()=>expect(store.items[0]?.photos).toHaveLength(2));expect(store.items[0].visibility).toBe("family");
+ await waitFor(()=>expect(store.items[0]?.photos).toHaveLength(2));expect(store.items[0].visibility).toBe("family");expect(store.items[0].date).toBe("2026-10-15");
  window.dispatchEvent(new Event("focus"));await b.findByRole("button",{name:/Ngày đi biển/});
  await person.click(b.getByRole("button",{name:/Ngày đi biển/}));dialog=within(b.getByRole("dialog"));expect(dialog.getByText("Nắng và biển")).toBeTruthy();expect(dialog.getByText(/Chia sẻ với gia đình/)).toBeTruthy();
 },15000);

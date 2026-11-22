@@ -184,3 +184,17 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
 .currency-switch button[aria-pressed="true"] { background:#a74570; border-color:#a74570; color:#fff; }
 .currency-switch small { font-size:.78rem; }
 .wallet-default-label{color:#a74570;font-weight:700}.wallet-set-default[aria-pressed=true]{background:#f7e8ef;color:#87435d;opacity:1}.wallet-actions .wallet-set-default{white-space:nowrap}@media(max-width:480px){.wallet-manage>.wallet-actions{gap:6px}.wallet-manage>.wallet-actions .wallet-action{min-width:0;padding-inline:4px}}
+
+/* Keep native iOS date controls inside their grid column, while retaining the platform picker. */
+.form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.form-grid>label{min-width:0}
+.modal .form-date-control{position:relative;display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;min-width:0;min-height:44px;margin-top:8px;padding:0 12px;border:1px solid #ecd9e1;border-radius:8px;background:#fffafb;color:#533d47;overflow:hidden}
+.modal .form-date-control .form-date-text{min-width:0;white-space:nowrap;font-size:14px;font-weight:400;line-height:1.2;font-variant-numeric:tabular-nums;color:#533d47}
+.form-date-control svg{flex:none;color:#87516a;pointer-events:none}
+.modal .form-date-control input[type=date]{position:absolute;inset:0;display:block;width:100%;max-width:100%;height:100%;min-width:0;min-height:0;margin:0;padding:0;border:0;opacity:0;appearance:none;-webkit-appearance:none;cursor:pointer}
+.form-date-control input::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;cursor:pointer}
+.form-date-control:focus-within{outline:3px solid #a15472;outline-offset:2px}
+.form-date-control:has(input:disabled){opacity:.6}
+.memory-editor label:not(.memory-photo-add){grid-template-columns:minmax(0,1fr);min-width:0}
+.memory-editor .form-date-control{margin-top:0}
+@media(max-width:400px){.form-grid{grid-template-columns:minmax(0,1fr);gap:0}}

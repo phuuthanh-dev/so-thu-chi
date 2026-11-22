@@ -12,6 +12,7 @@ import { SecureAvatar, uploadAvatar } from "./secure-avatar";
 import { TransferForm, transferDelta, type TransferState } from "./wallet-transfers";
 import { Report } from "./report";
 import { Journal } from "./journal";
+import { DateInput } from "./date-input";
 import { formatMoney, moneyInput, parseMoney, parseSignedMoney, walletCurrency, type Currency } from "@/lib/currency";
 import { CategoryIcon } from "./category-icon";
 import { CategoryAppearancePicker } from "./category-appearance-picker";
@@ -1780,12 +1781,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                       ? "Ngày chạy tiếp theo"
                       : "Ngày giao dịch"}{" "}
                     <span>*</span>
-                    <input
-                      type="date"
-                      required
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                    />
+                    <DateInput label={modal === "rule" ? "Ngày chạy tiếp theo" : "Ngày giao dịch"} required value={date} onChange={setDate} />
                   </label>
                   <label>
                     Ví / tài khoản <span>*</span>

@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Family } from "./family";
 import { prepareJournalPhoto } from "@/lib/journal-photo";
 import { JournalView, type JournalCardData } from "./journal-view";
+import { DateInput } from "./date-input";
 import "./journal.css";
 
 type Memory = {id:string;ownerId:string;title:string;body:string;date:string;visibility:"private"|"family";revision:number;createdAt:string;authorName:string;photos:string[]};
@@ -116,7 +117,7 @@ export function Journal({client,userId,family,onRefreshBlockChange}:{client:Supa
     {editor && <div className="modal-backdrop memory-modal-backdrop"><form ref={editorDialog} className="modal memory-editor" onSubmit={submit} role="dialog" aria-modal="true" aria-label={editor.revision ? "Sửa kỷ niệm" : "Viết kỷ niệm"}>
       <div className="memory-editor-heading"><div><span className="memories-kicker">NHỮNG ĐIỀU THƯƠNG</span><h2>{editor.revision ? "Chỉnh sửa kỷ niệm" : "Viết một kỷ niệm"}</h2><p>Lưu lại điều bạn muốn nhớ.</p></div><button type="button" className="icon-btn" aria-label="Đóng" disabled={busy} onClick={closeEditor}><X size={20}/></button></div>
       <label>Tiêu đề<input maxLength={120} value={editor.title} disabled={busy} onChange={e=>setEditor({...editor,title:e.target.value})} placeholder="Ví dụ: Một ngày bên nhau"/></label>
-      <label>Ngày kỷ niệm<input type="date" required value={editor.date} disabled={busy} onChange={e=>setEditor({...editor,date:e.target.value})}/></label>
+      <label>Ngày kỷ niệm<DateInput label="Ngày kỷ niệm" required value={editor.date} disabled={busy} onChange={date=>setEditor({...editor,date})}/></label>
       <label>Câu chuyện<textarea maxLength={10000} rows={5} value={editor.body} disabled={busy} onChange={e=>setEditor({...editor,body:e.target.value})} placeholder="Hôm ấy có chuyện gì vui?"/></label>
       <fieldset className="memory-privacy"><legend>Ai có thể xem?</legend><label><input type="radio" name="visibility" checked={editor.visibility==="private"} disabled={busy} onChange={()=>setEditor({...editor,visibility:"private"})}/><LockKeyhole size={16}/> Riêng tư</label><label><input type="radio" name="visibility" checked={editor.visibility==="family"} disabled={busy || family?.status!=="active"} onChange={()=>setEditor({...editor,visibility:"family"})}/><UsersRound size={16}/> Gia đình</label>{family?.status!=="active" && <small>Cần tham gia gia đình để chia sẻ.</small>}</fieldset>
       <div className="memory-photos-heading"><strong>Ảnh kỷ niệm</strong><span>Tối đa 8 ảnh · 10 MB/ảnh</span></div>
