@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { prepareAvatar } from "../src/lib/avatar";
 
 type AppearanceFixture = {kind: string; category: string; icon_key: string | null; color_key: string | null; revision: number};
-const server = vi.hoisted(() => ({ data: {} as Record<string, unknown>, appearances: [] as AppearanceFixture[], version: 0, offline: false, saveFails: false }));
+const server = vi.hoisted(() => ({ data: {} as Record<string, unknown>, appearances: [] as AppearanceFixture[], version: 0, offline: false, saveFails: false, defaultWallet: null as string | null }));
 vi.mock("../src/lib/avatar", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/avatar")>()), prepareAvatar: vi.fn() }));
 vi.mock("../src/app/secure-avatar", () => ({
   uploadAvatar: vi.fn(async (_client: unknown, image: string) => `cloudinary:test/${image.endsWith("YQ==") ? "first" : "second"}`),
@@ -14,7 +14,7 @@ vi.mock("../src/app/secure-avatar", () => ({
 vi.mock("../src/app/avatar-editor", () => ({ AvatarEditor: ({ onSave, onCancel, error }: { onSave: (crop: { zoom: number; x: number; y: number }) => void; onCancel: () => void; error: string }) => <div>{error && <p role="alert">{error}</p>}<button onClick={() => onSave({ zoom: 2, x: 25, y: 75 })}>Lưu ảnh</button><button onClick={onCancel}>Hủy</button></div> }));
 vi.mock("../src/app/auth", () => ({
   AuthGate: ({ children }: { children: (client: unknown, user: unknown) => React.ReactNode }) => children({
-    rpc: async (name: string, args?: { expected_version: string; new_data: Record<string, unknown>; p_expected_version: string; p_new_data: Record<string, unknown>; p_kind: string; p_category: string; p_new_name: string; p_icon: string | null; p_color: string | null; p_expected_revision: number; p_expected_new_revision: number; p_display_name: string }) => {
+    rpc: async (name: string, args?: { expected_version: string; new_data: Record<string, unknown>; p_expected_version: string; p_new_data: Record<string, unknown>; p_kind: string; p_category: string; p_new_name: string; p_icon: string | null; p_color: string | null; p_expected_revision: number; p_expected_new_revision: number; p_display_name: string; p_wallet_id: string }) => {
       if (name === "category_appearances_get") return server.offline ? {data:null,error:{message:"offline"}} : {data:structuredClone(server.appearances),error:null};
       if (name === "category_appearance_update" || name === "category_rename_with_appearance_v2") {
         if (!args || server.saveFails) return {data:null,error:{message:"offline"}};
@@ -36,6 +36,8 @@ vi.mock("../src/app/auth", () => ({
         server.data.displayName = args?.p_display_name; server.version++;
         return {data:[{version:server.version,display_name:server.data.displayName}],error:null};
       }
+      if (name === "account_default_wallet_get") return {data:server.defaultWallet,error:null};
+      if (name === "account_default_wallet_set") { server.defaultWallet=args?.p_wallet_id || null; return {data:server.defaultWallet,error:null}; }
       if (name === "wallet_transfer_state") return {data:{wallets:(server.data.wallets as {id:string; name:string}[]).map(w => ({ref:`p:${w.id}`,walletId:w.id,name:w.name,ownerId:"test-user"})),legs:[]},error:null};
       if (name === "family_status") return { data: null, error: null };
       if (name === "family_recurring_status") return { data: null, error: { code: "42501" } };
@@ -56,7 +58,7 @@ import Page from "../src/app/page";
 
 beforeEach(() => {
   vi.mocked(prepareAvatar).mockReset();
-  localStorage.clear(); server.appearances = []; server.version = 0; server.offline = false; server.saveFails = false;
+  localStorage.clear(); server.defaultWallet = null; server.appearances = []; server.version = 0; server.offline = false; server.saveFails = false;
   server.data = { entries: [], wallets: [{ id: "cash", name: "Tiền mặt", balance: 0 }], budgets: {}, rules: [], categories: { expense: ["Ăn uống", "Khác"], income: ["Lương"] } };
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -691,3 +693,26 @@ it("tách số liệu VND và USD, lưu khoản chi USD chính xác đến cent"
   await user.click(dialog.getByRole("button",{name:/Lưu giao dịch/}));
   await waitFor(()=>expect((server.data.entries as {amount:number;wallet:string}[]).some(e=>e.wallet==="paypal" && e.amount===29)).toBe(true));
 });
+
+it("ví mặc định đồng bộ giữa hai phiên, tự chọn cho thu chi và bỏ qua ví lưu trữ", async () => {
+  server.data.wallets = [{id:"cash",name:"Tiền mặt",balance:0},{id:"bank",name:"Ngân hàng",balance:0}];
+  const user=userEvent.setup(); const first=render(<Page />); const second=render(<Page />);
+  await within(first.container).findByText("Đã đồng bộ"); await within(second.container).findByText("Đã đồng bộ");
+  await user.click(within(first.container).getAllByRole("button",{name:"Ví của tôi"})[0]);
+  await user.click(await within(first.container).findByRole("button",{name:"Chọn ví mặc định Ngân hàng"}));
+  await waitFor(()=>expect(server.defaultWallet).toBe("bank"));
+  fireEvent.focus(window);
+  await waitFor(()=>expect(within(second.container).getByRole("button",{name:"Thêm giao dịch"})).toBeTruthy());
+  await user.click(within(second.container).getByRole("button",{name:"Thêm giao dịch"}));
+  let dialog=within(within(second.container).getByRole("dialog"));
+  await waitFor(()=>expect((dialog.getByLabelText(/Ví \/ tài khoản/) as HTMLSelectElement).value).toBe("bank"));
+  await user.click(dialog.getByRole("button",{name:"Khoản thu"}));
+  expect((dialog.getByLabelText(/Ví \/ tài khoản/) as HTMLSelectElement).value).toBe("bank");
+  await user.click(dialog.getByRole("button",{name:"Đóng"}));
+  server.data.wallets = [{id:"cash",name:"Tiền mặt",balance:0},{id:"bank",name:"Ngân hàng",balance:0,archived:true}]; server.version++;
+  fireEvent.focus(window);
+  await waitFor(()=>expect(within(second.container).queryByText("Ngân hàng")).toBeNull());
+  await user.click(within(second.container).getByRole("button",{name:"Thêm giao dịch"}));
+  dialog=within(within(second.container).getByRole("dialog"));
+  expect((dialog.getByLabelText(/Ví \/ tài khoản/) as HTMLSelectElement).value).toBe("cash");
+},15000);

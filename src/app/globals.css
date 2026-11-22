@@ -183,3 +183,4 @@ h1,h2,h3{text-wrap:balance}.card-heading p,.page-heading p,.setting-row p,.modal
 .currency-switch button { border:1px solid #e9ced8; border-radius:999px; background:#fff; color:#7b5365; padding:.38rem .75rem; font-weight:600; cursor:pointer; }
 .currency-switch button[aria-pressed="true"] { background:#a74570; border-color:#a74570; color:#fff; }
 .currency-switch small { font-size:.78rem; }
+.wallet-default-label{color:#a74570;font-weight:700}.wallet-set-default[aria-pressed=true]{background:#f7e8ef;color:#87435d;opacity:1}.wallet-actions .wallet-set-default{white-space:nowrap}@media(max-width:480px){.wallet-manage>.wallet-actions{gap:6px}.wallet-manage>.wallet-actions .wallet-action{min-width:0;padding-inline:4px}}

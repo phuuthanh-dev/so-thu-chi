@@ -238,6 +238,11 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   const [nameError, setNameError] = useState("");
   const [transfers, setTransfers] = useState<TransferState | null>(null);
   const [transferError, setTransferError] = useState("");
+  const [defaultWallet, setDefaultWallet] = useState<string | null>(null);
+  const [defaultWalletReady, setDefaultWalletReady] = useState(false);
+  const [defaultWalletBusy, setDefaultWalletBusy] = useState(false);
+  const [defaultWalletError, setDefaultWalletError] = useState("");
+  const defaultWalletSequence = useRef(0);
   const transferSequence = useRef(0);
   const [familyRefreshBlocked, setFamilyRefreshBlocked] = useState(false);
   const [avatarError, setAvatarError] = useState("");
@@ -349,6 +354,33 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     window.addEventListener("focus",onFocus);
     return () => { window.clearInterval(timer); window.removeEventListener("focus",onFocus); };
   }, [loadTransfers]);
+  const loadDefaultWallet = useCallback(async () => {
+    const sequence = ++defaultWalletSequence.current;
+    try {
+      const result = await client.rpc("account_default_wallet_get");
+      if (result.error || (result.data !== null && typeof result.data !== "string")) throw result.error || new Error("Invalid preference");
+      if (mountedRef.current && sequence === defaultWalletSequence.current) { setDefaultWallet(result.data); setDefaultWalletReady(true); setDefaultWalletError(""); }
+    } catch {
+      if (mountedRef.current && sequence === defaultWalletSequence.current) setDefaultWalletError("Không tải được ví mặc định. Hãy kiểm tra kết nối và thử lại.");
+    }
+  }, [client]);
+  useEffect(() => {
+    void Promise.resolve().then(() => loadDefaultWallet());
+    const timer = window.setInterval(() => void loadDefaultWallet(), 20000);
+    const onFocus = () => void loadDefaultWallet();
+    window.addEventListener("focus", onFocus);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
+  }, [loadDefaultWallet]);
+  const chooseDefaultWallet = async (walletId: string) => {
+    if (defaultWalletBusy) return;
+    ++defaultWalletSequence.current; setDefaultWalletBusy(true); setDefaultWalletError("");
+    try {
+      const result = await client.rpc("account_default_wallet_set", {p_wallet_id:walletId});
+      if (result.error || result.data !== walletId) throw result.error || new Error("Preference not saved");
+      if (mountedRef.current) { ++defaultWalletSequence.current; setDefaultWallet(walletId); setDefaultWalletReady(true); }
+    } catch { if (mountedRef.current) setDefaultWalletError("Không lưu được ví mặc định. Hãy kiểm tra kết nối và thử lại."); }
+    finally { if (mountedRef.current) setDefaultWalletBusy(false); }
+  };
   const walletRef = (item: WalletItem) => `${item.ownerId ? "f" : "p"}:${item.id}`;
   const walletTotal = (item: WalletItem, entries: Entry[]) => transfers === null ? null : calculateWalletBalance(item.balance,item.id,entries,dateISO()) + transferDelta(transfers.legs,walletRef(item));
   const updateDrafts = useCallback(() => {
@@ -576,7 +608,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     setDate(e?.date || dateISO());
     setCategory(e?.category || data?.categories[t][0] || "");
     setNote(e?.note || "");
-    setWallet(e?.wallet || data?.wallets.find((item) => !item.archived)?.id || "");
+    setWallet(e?.wallet || data?.wallets.find((item) => item.id === defaultWallet && !item.archived)?.id || data?.wallets.find((item) => !item.archived)?.id || "");
     setRepeat(false);
     setEditId(e?.id || null);
     setModal("entry");
@@ -1303,6 +1335,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 </button>
               </div>
               {transferError && <p className="avatar-error" role="alert">{transferError}</p>}
+              {defaultWalletError && <p className="avatar-error" role="alert">{defaultWalletError}</p>}
               {!workspace && <><button className="outline-btn transfer-open" disabled={!transfers || !!syncError || busy} onClick={() => setModal("transfer")}><Repeat2 size={16} aria-hidden="true" /> Chuyển giữa các ví</button>
               {transfers && transfers.wallets.length < 2 && <p className="footnote">Cần ít nhất hai ví bạn sở hữu để chuyển tiền.</p>}</>}
               {data.wallets.filter((w) => !w.archived).map((w) => (
@@ -1315,12 +1348,14 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                     <small>Số dư ban đầu: {money(w.balance, walletCurrency(w.currency))}</small>
                     {w.ownerId && <small><span className="wallet-privacy">{w.visibility === "shared" ? "Chia sẻ" : "Riêng tư"}</span> · {w.ownerId === user.id ? "Ví của bạn" : memberName(family?.members.find(m => m.userId === w.ownerId), user.id)}</small>}
                     {w.note && <small>{w.note}</small>}
+                    {defaultWallet === w.id && <small className="wallet-default-label">Ví mặc định</small>}
                   </div>
                   <b>
                     {transfers === null ? "—" : money(walletTotal(w, data.entries)!, walletCurrency(w.currency))}
                   </b>
-                  {(!workspace || w.ownerId === user.id) && <div className="wallet-actions">
-                    <button className="wallet-action" aria-label={`Sửa ví ${w.name}`} onClick={() => {
+                  <div className="wallet-actions">
+                    <button className="wallet-action wallet-set-default" type="button" aria-pressed={defaultWallet === w.id} aria-label={`${defaultWallet === w.id ? "Ví mặc định" : "Chọn ví mặc định"} ${w.name}`} disabled={!defaultWalletReady || defaultWalletBusy || defaultWallet === w.id} onClick={() => void chooseDefaultWallet(w.id)}>{defaultWallet === w.id ? "Ví chính" : "Đặt chính"}</button>
+                    {(!workspace || w.ownerId === user.id) && <><button className="wallet-action" aria-label={`Sửa ví ${w.name}`} onClick={() => {
                       setWalletEditId(w.id);
                       setWalletName(w.name);
                       setWalletBalance(moneyInput(w.balance, walletCurrency(w.currency))); setWalletUnit(walletCurrency(w.currency));
@@ -1343,8 +1378,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                       save({ ...data, wallets: used
                         ? data.wallets.map((item) => item.id === w.id ? { ...item, archived: true } : item)
                         : data.wallets.filter((item) => item.id !== w.id) });
-                    }}>Xóa</button>
-                  </div>}
+                    }}>Xóa</button></>}
+                  </div>
                 </div>
               ))}
               {data.wallets.some((w) => w.archived) && (
