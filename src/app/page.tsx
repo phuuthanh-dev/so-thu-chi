@@ -11,6 +11,7 @@ import { PullToRefresh } from "./pull-to-refresh";
 import { SecureAvatar, uploadAvatar } from "./secure-avatar";
 import { TransferForm, transferDelta, type TransferState } from "./wallet-transfers";
 import { Report } from "./report";
+import { Journal } from "./journal";
 import { formatMoney, moneyInput, parseMoney, parseSignedMoney, walletCurrency, type Currency } from "@/lib/currency";
 import { CategoryIcon } from "./category-icon";
 import { CategoryAppearancePicker } from "./category-appearance-picker";
@@ -31,6 +32,7 @@ import {
 } from "@/lib/ledger";
 import {
   ArrowDownLeft,
+  BookHeart,
   ArrowRight,
   CalendarDays,
   ChevronDown,
@@ -112,6 +114,7 @@ const nav = [
   { id: "budget", label: "Ngân sách", Icon: Target },
   { id: "recurring", label: "Định kỳ", Icon: Repeat2 },
   { id: "family", label: "Quản lý gia đình", Icon: Users },
+  { id: "journal", label: "Nhật ký & kỷ niệm", Icon: BookHeart },
 ];
 
 type RefreshLocation = { tab: string; family: boolean; month?: string; dailyDate?: string; currency?: Currency };
@@ -245,6 +248,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   const defaultWalletSequence = useRef(0);
   const transferSequence = useRef(0);
   const [familyRefreshBlocked, setFamilyRefreshBlocked] = useState(false);
+  const [journalRefreshBlocked, setJournalRefreshBlocked] = useState(false);
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -329,7 +333,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
     setAppearanceReady(true); setAppearanceError("");
   };
   const switchLedger = (next: Family | null) => {
-    if (busyRef.current || dirtyRef.current || modalRef.current) { alert("Hãy lưu hoặc xử lý bản nháp trước khi chuyển sổ."); return; }
+    if (busyRef.current || dirtyRef.current || modalRef.current || journalRefreshBlocked) { alert("Hãy lưu hoặc đóng nội dung đang sửa trước khi chuyển sổ."); return; }
     setWorkspace(next);
   };
   const [busy, setBusy] = useState(false),
@@ -826,7 +830,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   return (
     <div className={`app-shell${motionEnabled ? "" : " motion-off"}`}>
       <PetalFall enabled={motionEnabled} />
-      <PullToRefresh isBlocked={() => busyRef.current || dirtyRef.current || !!modalRef.current || menu || editingName || familyRefreshBlocked} reload={() => {
+      <PullToRefresh isBlocked={() => busyRef.current || dirtyRef.current || !!modalRef.current || menu || editingName || familyRefreshBlocked || journalRefreshBlocked} reload={() => {
         try { sessionStorage.setItem(refreshLocationKey(user.id), JSON.stringify({tab,family:!!workspace,month,dailyDate,currency:viewCurrency})); } catch { /* Refresh still works when storage is unavailable. */ }
         window.location.reload();
       }} />
@@ -1040,7 +1044,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               ))}
             </div>
           )}
-          <div className="page-heading">
+          {tab !== "journal" && <div className="page-heading">
             <div>
               <div className="eyebrow">
                 SỔ THU CHI CỦA BẠN <Sparkles className="eyebrow-sparkle" size={13} aria-hidden="true" />
@@ -1062,6 +1066,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               <Plus size={18} aria-hidden="true" /> <span className="add-transaction-label">Thêm giao dịch</span>
             </button>
           </div>
+          }
+          {tab === "overview" && <button type="button" className="journal-shortcut" onClick={() => setTab("journal")}><span className="journal-shortcut-icon"><BookHeart size={19} aria-hidden="true" /></span><span><strong>Nhật ký &amp; kỷ niệm</strong><small>Cất giữ những điều thương</small></span><ArrowRight size={17} aria-hidden="true" /></button>}
           {["overview", "reports", "budget"].includes(tab) && <div className="currency-switch" role="group" aria-label="Loại tiền báo cáo"><span>Đang xem</span>{(["VND", "USD"] as Currency[]).map(unit => <button key={unit} type="button" aria-pressed={viewCurrency === unit} onClick={() => setViewCurrency(unit)}>{unit}</button>)}<small>Không quy đổi</small></div>}
           {tab === "overview" && (
             <section className="card daily-expenses" aria-labelledby="daily-expenses-title">
@@ -1082,7 +1088,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               {dailyDate && (dailyExpenses.length ? <details className="daily-details"><summary><span className="daily-show">Xem {dailyExpenses.length} khoản chi</span><span className="daily-hide">Ẩn chi tiết</span><ChevronDown size={17} aria-hidden="true" /></summary>{renderTransactionList(dailyExpenses)}</details> : <p className="daily-empty">Chưa có khoản chi trong ngày này.</p>)}
             </section>
           )}
-          {!["settings", "wallets", "recurring", "family"].includes(tab) && (
+          {!["settings", "wallets", "recurring", "family", "journal"].includes(tab) && (
             <div className="period-row">
               <div className="period">
                 <CalendarDays size={16} />
@@ -1274,6 +1280,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               </div>
             </>
           )}
+          {tab === "journal" && <Journal client={client} userId={user.id} family={family} onRefreshBlockChange={setJournalRefreshBlocked} />}
           {tab === "family" && <FamilyManager client={client} userId={user.id} family={family} onFamily={setFamily} personal={!workspace} wallets={data.wallets.filter(item => !item.ownerId)} personalVersion={() => typeof version.current === "string" ? Number(version.current.split(":")[0]) : version.current} disabled={busy || !!syncError} refresh={() => refresh(true)} switchWorkspace={switchLedger} onRefreshBlockChange={setFamilyRefreshBlocked} />}
           {tab === "reports" && <Report entries={currencyEntries} currency={viewCurrency} month={month} onSelectMonth={setMonth} appearances={appearances} />}
           {tab === "transactions" && (
