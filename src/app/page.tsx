@@ -345,13 +345,14 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
   const loadTransfers = useCallback(async () => {
     const sequence = ++transferSequence.current;
     try {
-      const result = await client.rpc("wallet_transfer_state");
+      const result = await client.rpc("wallet_transfer_state_v2");
       if (result.error || !result.data || !Array.isArray(result.data.wallets) || !Array.isArray(result.data.legs)) throw result.error || new Error("Invalid transfer state");
       if (mountedRef.current && sequence === transferSequence.current) { setTransfers(result.data as TransferState); setTransferError(""); }
     } catch {
       if (mountedRef.current && sequence === transferSequence.current) { setTransfers(null); setTransferError("Không tải được lịch sử chuyển ví; số dư tạm thời không hiển thị. Hãy kiểm tra kết nối."); }
     }
   }, [client]);
+  const transferWalletChoices = useMemo(() => (transfers?.wallets || []).filter(w => !!workspace || w.ownerId === user.id).map(w => ({...w,ownerLabel:w.ownerId === user.id ? "Bạn" : memberName(family?.members.find(m => m.userId === w.ownerId),user.id)})), [transfers,workspace,user.id,family]);
   useEffect(() => {
     void Promise.resolve().then(() => loadTransfers());
     const timer=window.setInterval(() => void loadTransfers(),20000);
@@ -1344,8 +1345,8 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
               </div>
               {transferError && <p className="avatar-error" role="alert">{transferError}</p>}
               {defaultWalletError && <p className="avatar-error" role="alert">{defaultWalletError}</p>}
-              {!workspace && <><button className="outline-btn transfer-open" disabled={!transfers || !!syncError || busy} onClick={() => setModal("transfer")}><Repeat2 size={16} aria-hidden="true" /> Chuyển giữa các ví</button>
-              {transfers && transfers.wallets.length < 2 && <p className="footnote">Cần ít nhất hai ví bạn sở hữu để chuyển tiền.</p>}</>}
+              <button className="outline-btn transfer-open" disabled={!transfers || !!syncError || busy} onClick={() => setModal("transfer")}><Repeat2 size={16} aria-hidden="true" /> Chuyển giữa các ví</button>
+              {transfers && transferWalletChoices.length < 2 && <p className="footnote">Cần ít nhất hai ví khả dụng để chuyển tiền.</p>}
               {data.wallets.filter((w) => !w.archived).map((w) => (
                 <div className="wallet-row large wallet-manage" key={w.id}>
                   <span className="wallet-icon">
@@ -1710,7 +1711,7 @@ function Ledger({ client, user, motionEnabled, toggleMotion, workspace, family, 
                 <X size={21} />
               </button>
             </div>
-            {modal === "transfer" && transfers && <TransferForm client={client} userId={user.id} wallets={transfers.wallets} onCancel={closeModal} onDone={async () => { closeModal(); await loadTransfers(); await refresh(true); }} />}
+            {modal === "transfer" && transfers && <TransferForm client={client} userId={user.id} wallets={transferWalletChoices} familyMode={!!workspace} onCancel={closeModal} onDone={async () => { closeModal(); await loadTransfers(); await refresh(true); }} />}
             {modal === "avatar" && avatarFile && <AvatarEditor file={avatarFile} onSave={(crop) => void saveAvatar(crop)} onCancel={closeModal} error={avatarError} busy={busy} motionEnabled={motionEnabled} />}
             {(modal === "entry" || modal === "rule") && (
               <form onSubmit={submitEntry}>

@@ -3,13 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { moneyInput, parseMoney, walletCurrency, type Currency } from "@/lib/currency";
 
-export type TransferWallet = { ref: string; walletId: string; name: string; ownerId: string; currency?: Currency };
+export type TransferWallet = { ref: string; walletId: string; name: string; ownerId: string; currency?: Currency; ownerLabel?: string };
 export type TransferLeg = { id: string; ref: string; walletId: string; direction: "in" | "out"; amount: number; currency?: Currency; date: string; createdAt: string; otherName: string };
 export type TransferState = { wallets: TransferWallet[]; legs: TransferLeg[] };
 export function transferDelta(legs: TransferLeg[], ref: string): number {
   return legs.filter(leg => leg.ref === ref).reduce((sum, leg) => sum + (leg.direction === "in" ? leg.amount : -leg.amount), 0);
 }
-export function TransferForm({client, userId, wallets, onDone, onCancel}: {client: SupabaseClient; userId: string; wallets: TransferWallet[]; onDone: () => Promise<void>; onCancel: () => void}) {
+export function TransferForm({client, userId, wallets, familyMode=false, onDone, onCancel}: {client: SupabaseClient; userId: string; wallets: TransferWallet[]; familyMode?: boolean; onDone: () => Promise<void>; onCancel: () => void}) {
   const pendingKey = `nha-minh-pending-transfer:${userId}`;
   type Pending = {id: string; source: string; destination: string; amount: number; destinationAmount?: number};
   const [source,setSource]=useState(wallets[0]?.ref || "");
@@ -49,7 +49,7 @@ export function TransferForm({client, userId, wallets, onDone, onCancel}: {clien
     catch { setMessage("Không thể lưu trạng thái xác nhận trên thiết bị. Hãy kiểm tra bộ nhớ trình duyệt."); return; }
     setPending(attempt); busy.current=true; setLoading(true); setMessage("");
     try {
-      const result=await client.rpc("wallet_transfer_create_v2",{p_id:attempt.id,p_source:attempt.source,p_destination:attempt.destination,p_amount:attempt.amount,p_destination_amount:attempt.destinationAmount ?? attempt.amount});
+      const result=await client.rpc("wallet_transfer_create_v3",{p_id:attempt.id,p_source:attempt.source,p_destination:attempt.destination,p_amount:attempt.amount,p_destination_amount:attempt.destinationAmount ?? attempt.amount});
       if (result.error) {
         if (["22023","42501","23505"].includes(result.error.code || "")) {
           localStorage.removeItem(pendingKey); setPending(null); setMessage("Không thể chuyển: ví không còn khả dụng hoặc dữ liệu không hợp lệ. Hãy tải lại và thử lại.");
@@ -60,11 +60,12 @@ export function TransferForm({client, userId, wallets, onDone, onCancel}: {clien
     } catch { setMessage("Chưa xác nhận được kết quả. Hãy nhấn Kiểm tra lại; ứng dụng sẽ không ghi trùng."); }
     finally {busy.current=false;setLoading(false);}
   };
-  const options=(selected:string)=><>{selected && !wallets.some(w=>w.ref===selected) && <option value={selected}>Ví không còn khả dụng</option>}{wallets.map(w=><option key={w.ref} value={w.ref}>{w.name} · {walletCurrency(w.currency)}</option>)}</>;
+  const options=(selected:string)=><>{selected && !wallets.some(w=>w.ref===selected) && <option value={selected}>Ví không còn khả dụng</option>}{wallets.map(w=><option key={w.ref} value={w.ref}>{w.name} · {walletCurrency(w.currency)}{familyMode ? ` · ${w.ref.startsWith("f:") ? w.ownerLabel || "Thành viên" : "Cá nhân"}` : ""}</option>)}</>;
+  const walletHint=(ref:string,id:string)=>{const w=wallets.find(item=>item.ref===ref);return familyMode && w ? <small id={id} className="transfer-wallet-hint">{w.ref.startsWith("f:") ? `Ví gia đình · Chủ: ${w.ownerLabel || "Thành viên"}` : "Ví cá nhân của bạn"}</small> : null;};
   return <form className="transfer-form" onSubmit={submit}>
-    <p className="modal-desc">Chỉ chuyển giữa các ví bạn sở hữu. Khoản chuyển không tính vào thu nhập, chi tiêu hay ngân sách.</p>
-    <label>Từ ví<select value={source} onChange={e=>{setSource(e.target.value);setAmount("");setReceived("");}} disabled={!!pending || loading} required>{options(source)}</select></label>
-    <label>Đến ví<select value={destination} onChange={e=>{setDestination(e.target.value);setReceived("");}} disabled={!!pending || loading} required>{options(destination)}</select></label>
+    <p className="modal-desc">{familyMode ? "Chuyển giữa ví của bạn và ví gia đình bạn được sử dụng." : "Chuyển giữa các ví bạn sở hữu."} Khoản chuyển không tính vào thu nhập, chi tiêu hay ngân sách.</p>
+    <label>Từ ví<select aria-label="Từ ví" aria-describedby={familyMode && wallets.some(w=>w.ref===source) ? "transfer-source-hint" : undefined} value={source} onChange={e=>{setSource(e.target.value);setAmount("");setReceived("");}} disabled={!!pending || loading} required>{options(source)}</select>{walletHint(source,"transfer-source-hint")}</label>
+    <label>Đến ví<select aria-label="Đến ví" aria-describedby={familyMode && wallets.some(w=>w.ref===destination) ? "transfer-destination-hint" : undefined} value={destination} onChange={e=>{setDestination(e.target.value);setReceived("");}} disabled={!!pending || loading} required>{options(destination)}</select>{walletHint(destination,"transfer-destination-hint")}</label>
     <label>Số tiền gửi ({sourceCurrency})<input type="text" inputMode={sourceCurrency === "USD" ? "decimal" : "numeric"} value={amount} onChange={e=>setAmount(e.target.value)} disabled={!!pending || loading} required /></label>
     {crossCurrency && <><label>Số tiền thực nhận ({destinationCurrency})<input type="text" inputMode={destinationCurrency === "USD" ? "decimal" : "numeric"} value={received} onChange={e=>setReceived(e.target.value)} disabled={!!pending || loading} required /></label><p className="modal-desc">Nhập số thực nhận sau quy đổi và phí; ứng dụng không tự tính tỷ giá.</p></>}
     {message && <p className="avatar-error" role="alert">{message}</p>}

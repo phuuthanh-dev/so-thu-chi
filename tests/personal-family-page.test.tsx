@@ -4,18 +4,24 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 type WalletFixture = {id: string; name: string; balance: number; ownerId?: string; visibility?: string; note?: string};
 type EntryFixture = {id: string; wallet: string; type?: string; amount?: number; date?: string; category?: string; note?: string; createdAt?: string};
+type TransferFixture={id:string;ref:string;walletId:string;direction:"in"|"out";amount:number;currency:string;date:string;createdAt:string;otherName:string};
 type AppearanceFixture = {kind:string;category:string;icon_key:string | null;color_key:string | null;revision:number};
 type DataFixture = {wallets: WalletFixture[]; entries: EntryFixture[]; rules: unknown[]; budgets: Record<string, number>; categories: {expense: string[]; income: string[]}};
-const store = vi.hoisted(() => ({ personal: {} as DataFixture, family: {} as DataFixture, appearances: [] as AppearanceFixture[], familyVersion: 0, personalVersion: 0, defaultWallet: null as string | null }));
+const store = vi.hoisted(() => ({ personal: {} as DataFixture, family: {} as DataFixture, appearances: [] as AppearanceFixture[], familyVersion: 0, personalVersion: 0, defaultWallet: null as string | null, legs: [] as TransferFixture[], transferCalls: 0 }));
 vi.mock("../src/app/auth", () => {
   const clone = <T,>(value: T) => structuredClone(value);
-  const client = { rpc: async (name: string, args?: {new_data: DataFixture; p_kind:string; p_category:string; p_icon:string | null; p_color:string | null; p_expected_revision:number; p_wallet_id:string}): Promise<{data: unknown; error: null}> => {
+  const client = { rpc: async (name: string, args?: {new_data: DataFixture; p_kind:string; p_category:string; p_icon:string | null; p_color:string | null; p_expected_revision:number; p_wallet_id:string; p_id:string; p_source:string; p_destination:string; p_amount:number; p_destination_amount:number}): Promise<{data: unknown; error: null}> => {
     if (name === "category_appearances_get") return {data:clone(store.appearances),error:null};
     if (name === "category_appearance_update") { if (!args) throw new Error("missing appearance"); const row={kind:args.p_kind,category:args.p_category,icon_key:args.p_icon,color_key:args.p_color,revision:args.p_expected_revision+1}; store.appearances=[...store.appearances.filter(item=>item.kind!==row.kind || item.category!==row.category),row]; return {data:[row],error:null}; }
     if (name === "account_default_wallet_get") return {data:store.defaultWallet,error:null};
     if (name === "account_default_wallet_set") { store.defaultWallet=args?.p_wallet_id || null; return {data:store.defaultWallet,error:null}; }
-    if (name === "wallet_transfer_state") return {data:{wallets:[...store.personal.wallets,...store.family.wallets].map(w=>({ref:`${w.ownerId ? "f" : "p"}:${w.id}`,walletId:w.id,name:w.name,ownerId:w.ownerId || "u1"})),legs:[]},error:null};
-    if (name === "family_status") return {data:{id:"family1",name:"Nhà mình",role:"owner",status:"active",members:[{userId:"u1",phone:"Số 1",role:"owner",status:"active"}]},error:null};
+    if (name === "wallet_transfer_state_v2") return {data:{wallets:[...store.personal.wallets,...store.family.wallets].map(w=>({ref:`${w.ownerId ? "f" : "p"}:${w.id}`,walletId:w.id,name:w.name,ownerId:w.ownerId || "u1"})),legs:clone(store.legs)},error:null};
+    if (name === "wallet_transfer_create_v3" && args) {
+      store.transferCalls++;
+      store.legs.push({id:args.p_id,ref:args.p_source,walletId:args.p_source.slice(2),direction:"out",amount:args.p_amount,currency:"VND",date:"2026-11-24",createdAt:"2026-11-24T00:00:00Z",otherName:"Ví đích"},{id:args.p_id,ref:args.p_destination,walletId:args.p_destination.slice(2),direction:"in",amount:args.p_destination_amount,currency:"VND",date:"2026-11-24",createdAt:"2026-11-24T00:00:00Z",otherName:"Ví nguồn"});
+      store.familyVersion++;return {data:args.p_id,error:null};
+    }
+    if (name === "family_status") return {data:{id:"family1",name:"Nhà mình",role:"owner",status:"active",members:[{userId:"u1",displayName:"An",role:"owner",status:"active"},{userId:"u2",displayName:"Bình",role:"member",status:"active"}]},error:null};
     if (name === "recurring_status" || name === "family_recurring_status") return {data:[],error:null};
     if (name === "personal_combined_open") { const owned=store.family.wallets.filter(w => w.ownerId === "u1"); return {data:[{version:`${store.personalVersion}:none:${store.familyVersion}`,data:{...clone(store.personal),wallets:[...clone(store.personal.wallets),...clone(owned)],entries:[...clone(store.personal.entries),...clone(store.family.entries.filter(e => owned.some(w => w.id === e.wallet)))],rules:[]}}],error:null}; }
     if (name === "family_open_ledger") return {data:[{version:store.familyVersion,data:clone(store.family)}],error:null};
@@ -36,7 +42,7 @@ vi.mock("../src/app/auth", () => {
 });
 import Page from "../src/app/page";
 beforeEach(() => {
-  localStorage.clear(); sessionStorage.clear(); store.appearances=[]; store.defaultWallet=null; store.personalVersion=0; store.familyVersion=0;
+  localStorage.clear(); sessionStorage.clear(); store.appearances=[]; store.legs=[];store.transferCalls=0; store.defaultWallet=null; store.personalVersion=0; store.familyVersion=0;
   const categories={expense:["Ăn uống"],income:["Lương"]};
   store.personal={entries:[],wallets:[{id:"cash",name:"Ví cá nhân",balance:100}],budgets:{},rules:[],categories};
   store.family={entries:[],wallets:[{id:"11111111-1111-4111-8111-111111111111",name:"Ví gia đình của tôi",balance:200,ownerId:"u1",visibility:"shared",note:""},{id:"22222222-2222-4222-8222-222222222222",name:"Ví của người kia",balance:300,ownerId:"u2",visibility:"shared",note:""}],budgets:{},rules:[],categories};
@@ -190,3 +196,36 @@ it("ví mặc định dùng ở cả hai sổ nếu có quyền, ngược lại 
   dialog=within(screen.getByRole("dialog"));
   expect((dialog.getByLabelText(/Ví \/ tài khoản/) as HTMLSelectElement).value).toBe("cash");
 },15000);
+it("chỉ chọn ví của mình ở cá nhân, và chọn thêm ví chung của thành viên ở gia đình",async()=>{
+  const user=userEvent.setup();render(<Page/>);await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getAllByRole("button",{name:"Ví của tôi"})[0]);
+  await user.click(await screen.findByRole("button",{name:"Chuyển giữa các ví"}));
+  let dialog=within(screen.getByRole("dialog"));
+  expect(dialog.getAllByRole("option",{name:/Ví cá nhân/})).toHaveLength(2);
+  expect(dialog.queryByRole("option",{name:/Ví của người kia/})).toBeNull();
+  await user.click(dialog.getAllByRole("button",{name:"Đóng"})[0]);
+  await user.click(screen.getByRole("button",{name:"Chuyển sang sổ gia đình"}));
+  await screen.findByRole("button",{name:"Nhà mình"});
+  await user.click(screen.getAllByRole("button",{name:"Ví của tôi"})[0]);
+  await user.click(await screen.findByRole("button",{name:"Chuyển giữa các ví"}));
+  dialog=within(screen.getByRole("dialog"));
+  expect(dialog.getAllByRole("option",{name:/Ví của người kia · VND · Bình/})).toHaveLength(2);
+  expect(dialog.getByText(/không tính vào thu nhập, chi tiêu hay ngân sách/)).toBeTruthy();
+});
+it("chuyển ví chung cập nhật số dư và lịch sử giữa hai sổ, không tạo thu chi",async()=>{
+  const user=userEvent.setup();render(<Page/>);await screen.findByText("Đã đồng bộ");
+  await user.click(screen.getByRole("button",{name:"Chuyển sang sổ gia đình"}));await screen.findByRole("button",{name:"Nhà mình"});
+  await user.click(screen.getAllByRole("button",{name:"Ví của tôi"})[0]);await user.click(await screen.findByRole("button",{name:"Chuyển giữa các ví"}));
+  const dialog=within(screen.getByRole("dialog"));
+  await user.selectOptions(dialog.getByLabelText("Từ ví"),"f:11111111-1111-4111-8111-111111111111");
+  await user.selectOptions(dialog.getByLabelText("Đến ví"),"f:22222222-2222-4222-8222-222222222222");
+  await user.type(dialog.getByLabelText("Số tiền gửi (VND)"),"50");await user.click(await dialog.findByRole("button",{name:"Chuyển tiền"}));
+  await waitFor(()=>expect(store.transferCalls).toBe(1));await screen.findByText("Lịch sử chuyển ví");
+  let row=screen.getByText("Ví gia đình của tôi").closest(".wallet-row")!;await waitFor(()=>expect(row.textContent).toContain("150"));
+  row=screen.getByText("Ví của người kia").closest(".wallet-row")!;expect(row.textContent).toContain("350");
+  expect(store.personal.entries).toHaveLength(0);expect(store.family.entries).toHaveLength(0);
+  await user.click(screen.getByRole("button",{name:"Chuyển sang sổ cá nhân"}));await screen.findByRole("button",{name:"Không gian của tôi"});
+  await user.click(screen.getAllByRole("button",{name:"Ví của tôi"})[0]);
+  row=screen.getByText("Ví gia đình của tôi").closest(".wallet-row")!;await waitFor(()=>expect(row.textContent).toContain("150"));
+  expect(screen.queryByText("Ví của người kia")).toBeNull();
+});

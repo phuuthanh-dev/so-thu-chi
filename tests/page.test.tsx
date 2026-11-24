@@ -38,7 +38,7 @@ vi.mock("../src/app/auth", () => ({
       }
       if (name === "account_default_wallet_get") return {data:server.defaultWallet,error:null};
       if (name === "account_default_wallet_set") { server.defaultWallet=args?.p_wallet_id || null; return {data:server.defaultWallet,error:null}; }
-      if (name === "wallet_transfer_state") return {data:{wallets:(server.data.wallets as {id:string; name:string}[]).map(w => ({ref:`p:${w.id}`,walletId:w.id,name:w.name,ownerId:"test-user"})),legs:[]},error:null};
+      if (name === "wallet_transfer_state_v2") return {data:{wallets:(server.data.wallets as {id:string; name:string}[]).map(w => ({ref:`p:${w.id}`,walletId:w.id,name:w.name,ownerId:"test-user"})),legs:[]},error:null};
       if (name === "family_status") return { data: null, error: null };
       if (name === "family_recurring_status") return { data: null, error: { code: "42501" } };
       if (name === "recurring_status") return { data: [], error: null };

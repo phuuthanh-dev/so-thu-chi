@@ -26,7 +26,7 @@ it("giữ lần chuyển chưa xác nhận khi mở lại biểu mẫu",async()=
   localStorage.setItem("nha-minh-pending-transfer:u1",JSON.stringify({id:"retry-1",source:"p:cash",destination:"f:bank",amount:55}));
   const rpc=vi.fn().mockResolvedValue({data:"ok",error:null});render(<TransferForm client={{rpc} as unknown as SupabaseClient} userId="u1" wallets={wallets} onDone={async()=>{}} onCancel={()=>{}} />);
   await userEvent.click(await screen.findByRole("button",{name:"Kiểm tra lại"}));
-  await waitFor(()=>expect(rpc).toHaveBeenCalledWith("wallet_transfer_create_v2",{p_id:"retry-1",p_source:"p:cash",p_destination:"f:bank",p_amount:55,p_destination_amount:55}));
+  await waitFor(()=>expect(rpc).toHaveBeenCalledWith("wallet_transfer_create_v3",{p_id:"retry-1",p_source:"p:cash",p_destination:"f:bank",p_amount:55,p_destination_amount:55}));
 });
 it("chuyển VND sang USD gửi đúng hai số tiền và thử lại an toàn",async()=>{
   const units=[{ref:"p:cash",walletId:"cash",name:"Tiền mặt",ownerId:"u1",currency:"VND" as const},{ref:"p:usd",walletId:"usd",name:"PayPal",ownerId:"u1",currency:"USD" as const}];
